@@ -3,23 +3,26 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import UploadZone from "@/components/UploadZone";
-import { ArrowLeft, FileText, Brain, Zap, CheckCircle } from "lucide-react";
+import { ArrowLeft, FileText, Brain, Zap, CheckCircle, Download } from "lucide-react";
 
 const Upload = () => {
   const navigate = useNavigate();
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [currentStep, setCurrentStep] = useState(0);
+  const [excelReady, setExcelReady] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState("");
 
   const steps = [
-    { name: "Processing", icon: Zap, description: "Reading pages..." },
-    { name: "Extracting", icon: FileText, description: "Found 47 transactions..." },
+    { name: "Converting", icon: FileText, description: "Converting to Excel format..." },
+    { name: "Extracting", icon: Zap, description: "Found 47 transactions..." },
     { name: "Analyzing", icon: Brain, description: "Categorizing expenses..." },
-    { name: "Complete", icon: CheckCircle, description: "Analysis ready!" }
+    { name: "Complete", icon: CheckCircle, description: "Excel ready for download!" }
   ];
 
   const handleFileUpload = (file: File) => {
     setIsProcessing(true);
+    setUploadedFileName(file.name.replace(/\.[^/.]+$/, ""));
     
     // Simulate processing steps
     let step = 0;
@@ -30,11 +33,21 @@ const Upload = () => {
       
       if (step >= steps.length) {
         clearInterval(interval);
-        setTimeout(() => {
-          navigate("/dashboard");
-        }, 1500);
+        setExcelReady(true);
       }
     }, 2000);
+  };
+
+  const handleDownloadExcel = () => {
+    // Simulate Excel download
+    const link = document.createElement('a');
+    link.href = '#';
+    link.download = `${uploadedFileName}_transactions.xlsx`;
+    link.click();
+  };
+
+  const handleContinueToAnalysis = () => {
+    navigate("/dashboard");
   };
 
   return (
@@ -135,16 +148,52 @@ const Upload = () => {
               </div>
             </div>
 
+            {/* Excel Download Section */}
+            {excelReady && (
+              <div className="bg-gradient-to-r from-primary/10 to-primary/5 border border-primary/20 rounded-lg p-6 space-y-4">
+                <div className="flex items-center justify-center space-x-2">
+                  <CheckCircle className="h-6 w-6 text-success" />
+                  <h3 className="font-semibold text-lg">Excel File Ready!</h3>
+                </div>
+                <p className="text-center text-muted-foreground">
+                  Your bank statement has been converted to Excel format with all transactions organized and categorized.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                  <Button 
+                    variant="outline" 
+                    size="lg" 
+                    onClick={handleDownloadExcel}
+                    className="flex items-center space-x-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    <span>Download Excel File</span>
+                  </Button>
+                  <Button 
+                    variant="hero" 
+                    size="lg" 
+                    onClick={handleContinueToAnalysis}
+                    className="flex items-center space-x-2"
+                  >
+                    <Brain className="h-4 w-4" />
+                    <span>Continue to Analysis</span>
+                  </Button>
+                </div>
+              </div>
+            )}
+
             {/* Tips */}
-            <div className="bg-card border border-border rounded-lg p-6 space-y-4">
-              <h3 className="font-semibold text-left">💡 Did you know?</h3>
-              <ul className="text-left space-y-2 text-muted-foreground">
-                <li>• We can detect subscriptions automatically</li>
-                <li>• Our AI finds potential tax deductions</li>
-                <li>• Duplicate charges are flagged for review</li>
-                <li>• All data is encrypted and deleted after 30 days</li>
-              </ul>
-            </div>
+            {!excelReady && (
+              <div className="bg-card border border-border rounded-lg p-6 space-y-4">
+                <h3 className="font-semibold text-left">💡 Did you know?</h3>
+                <ul className="text-left space-y-2 text-muted-foreground">
+                  <li>• We convert your statement to Excel format first</li>
+                  <li>• All transactions are automatically categorized</li>
+                  <li>• Our AI finds potential tax deductions</li>
+                  <li>• Duplicate charges are flagged for review</li>
+                  <li>• All data is encrypted and deleted after 30 days</li>
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </div>
