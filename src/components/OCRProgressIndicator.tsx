@@ -2,7 +2,7 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { FileText, Brain, CheckCircle, AlertCircle } from "lucide-react";
+import { FileText, Brain, CheckCircle, AlertCircle, Cloud } from "lucide-react";
 
 interface OCRProgressIndicatorProps {
   progress: number;
@@ -22,7 +22,7 @@ const OCRProgressIndicator = ({
   const getIcon = () => {
     if (hasError) return <AlertCircle className="h-6 w-6 text-destructive" />;
     if (isComplete) return <CheckCircle className="h-6 w-6 text-success" />;
-    return <Brain className="h-6 w-6 text-primary animate-pulse" />;
+    return <Cloud className="h-6 w-6 text-primary animate-pulse" />;
   };
 
   const getStatusColor = () => {
@@ -62,21 +62,21 @@ const OCRProgressIndicator = ({
 
           {/* Processing Steps */}
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs">
-            <div className={`flex items-center space-x-1 ${progress >= 10 ? 'text-primary' : 'text-muted-foreground'}`}>
-              <div className={`w-2 h-2 rounded-full ${progress >= 10 ? 'bg-primary' : 'bg-muted'}`} />
-              <span>Load Model</span>
+            <div className={`flex items-center space-x-1 ${progress >= 20 ? 'text-primary' : 'text-muted-foreground'}`}>
+              <div className={`w-2 h-2 rounded-full ${progress >= 20 ? 'bg-primary' : 'bg-muted'}`} />
+              <span>Extract Text</span>
             </div>
             <div className={`flex items-center space-x-1 ${progress >= 40 ? 'text-primary' : 'text-muted-foreground'}`}>
               <div className={`w-2 h-2 rounded-full ${progress >= 40 ? 'bg-primary' : 'bg-muted'}`} />
-              <span>Convert PDF</span>
+              <span>Prepare Data</span>
             </div>
             <div className={`flex items-center space-x-1 ${progress >= 70 ? 'text-primary' : 'text-muted-foreground'}`}>
               <div className={`w-2 h-2 rounded-full ${progress >= 70 ? 'bg-primary' : 'bg-muted'}`} />
-              <span>Extract Text</span>
+              <span>Mistral OCR</span>
             </div>
             <div className={`flex items-center space-x-1 ${progress >= 90 ? 'text-primary' : 'text-muted-foreground'}`}>
               <div className={`w-2 h-2 rounded-full ${progress >= 90 ? 'bg-primary' : 'bg-muted'}`} />
-              <span>Parse Data</span>
+              <span>Parse Results</span>
             </div>
           </div>
 
@@ -84,11 +84,11 @@ const OCRProgressIndicator = ({
           <div className="grid grid-cols-2 gap-4 pt-4 border-t text-xs text-muted-foreground">
             <div>
               <div className="font-medium">OCR Engine</div>
-              <div>Microsoft TrOCR</div>
+              <div>Mistral Vision API</div>
             </div>
             <div>
               <div className="font-medium">Processing</div>
-              <div>Client-side AI</div>
+              <div>Cloud-based AI</div>
             </div>
           </div>
         </div>

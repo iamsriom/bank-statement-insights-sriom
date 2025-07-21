@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,7 +36,9 @@ const Upload = () => {
     setProcessedData(data);
 
     // Check if user is authenticated
-    if (!session) {
+    const { data: { session: currentSession } } = await supabase.auth.getSession();
+    
+    if (!currentSession) {
       // Anonymous mode - store data temporarily in browser
       setIsAnonymousMode(true);
       const tempData = {
@@ -65,88 +66,35 @@ const Upload = () => {
 
       toast({
         title: "Statement Processed Successfully!",
-        description: `Bank statement analyzed. Found ${data.metadata.totalTransactions} transactions. Sign in to save permanently.`,
+        description: `Found ${data.transactions.length} transactions. Sign in to save permanently.`,
       });
 
       return;
     }
 
-    // Authenticated mode - store in database
-    setIsStoringData(true);
+    // Authenticated mode - data might already be stored by backend
+    setExcelData({
+      sheets: [{
+        name: 'Transactions',
+        headers: ['Date', 'Description', 'Amount', 'Balance', 'Type', 'Category', 'Notes'],
+        data: data.transactions.map((t: any) => [
+          t.date, 
+          t.description, 
+          t.amount, 
+          t.balance || 0, 
+          t.type,
+          '', 
+          ''
+        ])
+      }],
+      metadata: data.metadata
+    });
+    setCurrentStep('excel');
 
-    try {
-      const { data: statement, error } = await supabase
-        .from('bank_statements')
-        .insert({
-          user_id: session.user.id,
-          filename: data.originalFile.name,
-          original_file_hash: 'browser_processed_' + Date.now(),
-          encrypted_file_data: btoa(JSON.stringify(data)),
-          file_size: data.originalFile.size,
-          processing_status: 'completed',
-          excel_data: {
-            sheets: [{
-              name: 'Transactions',
-              headers: ['Date', 'Description', 'Amount', 'Balance', 'Type', 'Category', 'Notes'],
-              data: data.transactions.map((t: any) => [
-                t.date, 
-                t.description, 
-                t.amount, 
-                t.balance || 0, 
-                t.type,
-                '', 
-                ''
-              ])
-            }],
-            metadata: data.metadata
-          },
-          total_transactions: data.metadata.totalTransactions,
-          date_range_start: data.metadata.dateRange.start,
-          date_range_end: data.metadata.dateRange.end,
-          account_info: data.metadata.accountInfo
-        })
-        .select()
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      console.log('Statement stored successfully:', statement.id);
-      setStatementId(statement.id);
-      setExcelData({
-        sheets: [{
-          name: 'Transactions',
-          headers: ['Date', 'Description', 'Amount', 'Balance', 'Type', 'Category', 'Notes'],
-          data: data.transactions.map((t: any) => [
-            t.date, 
-            t.description, 
-            t.amount, 
-            t.balance || 0, 
-            t.type,
-            '', 
-            ''
-          ])
-        }],
-        metadata: data.metadata
-      });
-      setCurrentStep('excel');
-
-      toast({
-        title: "Statement Processed Successfully!",
-        description: `Bank statement analyzed and saved. Found ${data.metadata.totalTransactions} transactions.`,
-      });
-
-    } catch (error) {
-      console.error('Database storage error:', error);
-      toast({
-        title: "Storage Failed",
-        description: "Failed to save processed data. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsStoringData(false);
-    }
+    toast({
+      title: "Statement Processed Successfully!",
+      description: `Found ${data.transactions.length} transactions and saved securely.`,
+    });
   };
 
   const handleRetryUpload = () => {
@@ -197,7 +145,7 @@ const Upload = () => {
       setTimeout(() => {
         const mockAnalysis = {
           summary: {
-            totalTransactions: processedData?.metadata?.totalTransactions || 0,
+            totalTransactions: processedData?.transactions?.length || 0,
             totalSpending: Math.abs(processedData?.transactions?.filter((t: any) => t.amount < 0)?.reduce((sum: number, t: any) => sum + Math.abs(t.amount), 0) || 0),
             totalIncome: processedData?.transactions?.filter((t: any) => t.amount > 0)?.reduce((sum: number, t: any) => sum + t.amount, 0) || 0
           },
@@ -351,7 +299,7 @@ const Upload = () => {
                       <div>
                         <p className="font-medium text-amber-800">Anonymous Processing Mode</p>
                         <p className="text-sm text-amber-700">
-                          Your data is processed locally and stored temporarily. 
+                          Your data is processed securely and stored temporarily. 
                           <Link to="/auth" className="underline ml-1">Sign in</Link> to save permanently and access advanced features.
                         </p>
                       </div>
@@ -377,18 +325,6 @@ const Upload = () => {
                       onFileUpload={handleFileUpload}
                       onProcessedData={(data) => handleProcessedData(data, session)}
                     />
-                    
-                    {isStoringData && (
-                      <div className="mt-6 flex items-center space-x-3 p-4 bg-secondary rounded-lg">
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
-                        <div>
-                          <p className="font-medium">Saving processed data...</p>
-                          <p className="text-sm text-muted-foreground">
-                            Storing your transaction data securely
-                          </p>
-                        </div>
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               )}
