@@ -59,35 +59,10 @@ serve(async (req) => {
     const isPDF = fileName.toLowerCase().endsWith('.pdf') || 
                   (fileBuffer[0] === 0x25 && fileBuffer[1] === 0x50 && fileBuffer[2] === 0x44 && fileBuffer[3] === 0x46);
 
-    let imageData: string;
-
-    if (isPDF) {
-      console.log('Processing PDF file - attempting direct processing first...');
-      
-      // For PDFs, first try sending directly to Mistral (some text-layer PDFs work)
-      // If that fails, we'll handle it in the error case
-      try {
-        // Try to process PDF directly as image data
-        imageData = `data:application/pdf;base64,${fileData}`;
-        console.log('Attempting to process PDF directly with Mistral Vision API');
-      } catch (error) {
-        console.error('PDF processing preparation failed:', error);
-        // Fallback: treat as image
-        imageData = `data:image/png;base64,${fileData}`;
-      }
-    } else {
-      // For image files, use as-is
-      const mimeType = fileName.toLowerCase().endsWith('.png') ? 'image/png' : 
-                      fileName.toLowerCase().endsWith('.jpg') || fileName.toLowerCase().endsWith('.jpeg') ? 'image/jpeg' : 
-                      'image/png';
-      imageData = `data:${mimeType};base64,${fileData}`;
-      console.log('Image file prepared for processing');
-    }
-
     console.log('Starting OCR processing...');
 
     // Enhanced prompt for better transaction extraction
-    const extractionPrompt = `You are a bank statement OCR expert. Extract ALL transactions from this document and return ONLY a valid JSON array.
+    const structurePrompt = `You are a bank statement expert. Transform the extracted text into structured transaction data and return ONLY a valid JSON array.
 
 CRITICAL REQUIREMENTS:
 1. Return ONLY valid JSON - no explanations, no markdown, no other text
@@ -127,55 +102,126 @@ Return ONLY the JSON array, nothing else.`;
       try {
         console.log(`OCR attempt ${retryCount + 1}/${maxRetries + 1}`);
         
-        // Call Vision API for OCR
-        apiResponse = await fetch('https://api.mistral.ai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${mistralApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'pixtral-12b-2409',
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  {
-                    type: 'text',
-                    text: extractionPrompt
-                  },
-                  {
-                    type: 'image_url',
-                    image_url: {
-                      url: imageData
-                    }
+        if (isPDF) {
+          console.log('Processing PDF with Mistral Document OCR API');
+          
+          // Use Mistral's dedicated document OCR endpoint for PDFs
+          apiResponse = await fetch('https://api.mistral.ai/v1/document/ocr', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${mistralApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              inputs: [
+                {
+                  document: {
+                    b64: fileData
                   }
-                ]
-              }
-            ],
-            max_tokens: 4000,
-            temperature: 0.1
-          })
-        });
+                }
+              ]
+            }),
+          });
+
+          if (!apiResponse.ok) {
+            const errorText = await apiResponse.text();
+            console.log(`Document OCR API error (attempt ${retryCount + 1}): ${apiResponse.status} ${errorText}`);
+            throw new Error(`Document OCR API error: ${apiResponse.status} ${errorText}`);
+          }
+
+          const ocrData = await apiResponse.json();
+          console.log("Document OCR response received");
+          
+          // Extract text from Mistral's document OCR response
+          if (!ocrData || !ocrData.outputs || !ocrData.outputs[0] || !ocrData.outputs[0].text) {
+            throw new Error("No text extracted from document OCR response");
+          }
+
+          const extractedText = ocrData.outputs[0].text;
+          console.log(`Successfully extracted ${extractedText.length} characters of text`);
+          
+          // Now use the extracted text with a language model to structure it
+          apiResponse = await fetch('https://api.mistral.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${mistralApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'mistral-large-latest',
+              messages: [
+                {
+                  role: 'user',
+                  content: `${structurePrompt}\n\nExtracted text from bank statement:\n${extractedText}`
+                }
+              ],
+              max_tokens: 4000,
+              temperature: 0.1
+            }),
+          });
+
+          if (!apiResponse.ok) {
+            const errorText = await apiResponse.text();
+            console.log(`Structure API error: ${apiResponse.status} ${errorText}`);
+            throw new Error(`Structure API error: ${apiResponse.status} ${errorText}`);
+          }
+
+          console.log('PDF processed successfully with Document OCR API');
+        } else {
+          console.log('Processing image file with Mistral Vision API');
+          
+          // For image files, use vision API directly
+          const mimeType = fileName.toLowerCase().endsWith('.png') ? 'image/png' : 
+                          fileName.toLowerCase().endsWith('.jpg') || fileName.toLowerCase().endsWith('.jpeg') ? 'image/jpeg' : 
+                          'image/png';
+          const imageData = `data:${mimeType};base64,${fileData}`;
+          
+          apiResponse = await fetch('https://api.mistral.ai/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${mistralApiKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: 'pixtral-12b-2409',
+              messages: [
+                {
+                  role: 'user',
+                  content: [
+                    {
+                      type: 'text',
+                      text: structurePrompt
+                    },
+                    {
+                      type: 'image_url',
+                      image_url: {
+                        url: imageData
+                      }
+                    }
+                  ]
+                }
+              ],
+              max_tokens: 4000,
+              temperature: 0.1
+            })
+          });
+
+          if (!apiResponse.ok) {
+            const errorText = await apiResponse.text();
+            console.log(`Vision API error (attempt ${retryCount + 1}): ${apiResponse.status} ${errorText}`);
+            throw new Error(`Vision API error: ${apiResponse.status} ${errorText}`);
+          }
+
+          console.log('Image processed successfully with Vision API');
+        }
 
         if (apiResponse.ok) {
           break; // Success, exit retry loop
         }
 
-        const errorText = await apiResponse.text();
-        console.error(`OCR API error (attempt ${retryCount + 1}):`, apiResponse.status, errorText);
-        
-        // If it's a PDF and we get a 400 error, try converting to image format
-        if (isPDF && apiResponse.status === 400 && retryCount < maxRetries) {
-          console.log('PDF direct processing failed, trying as image format...');
-          imageData = `data:image/png;base64,${fileData}`;
-          retryCount++;
-          continue;
-        }
-
         // If all retries failed
         if (retryCount >= maxRetries) {
-          throw new Error(`OCR processing failed after ${maxRetries + 1} attempts: ${apiResponse.status}`);
+          throw new Error(`OCR processing failed after ${maxRetries + 1} attempts`);
         }
 
         retryCount++;
