@@ -58,7 +58,7 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
     }
   }, [onProgress]);
 
-  const processDocument = useCallback(async () => {
+  const processDocument = async () => {
     if (isProcessing) return;
     
     setIsProcessing(true);
@@ -107,12 +107,14 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
     } finally {
       setIsProcessing(false);
     }
-  }, [file, convertFileToBase64, processWithAPI, onProcessed, onError, onProgress, isProcessing]);
+  };
 
-  // Auto-start processing when component mounts
+  // Auto-start processing when component mounts - fix infinite loop
   useEffect(() => {
-    processDocument();
-  }, [processDocument]);
+    if (!isProcessing) {
+      processDocument();
+    }
+  }, []); // Empty dependency array to run only once
 
   return null;
 };

@@ -171,6 +171,8 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
             onClick={() => {
               setUploadStatus('processing');
               setErrorMessage(null);
+              setOcrProgress(0);
+              setOcrStatus('Starting document processing...');
             }} 
             variant="default"
           >
