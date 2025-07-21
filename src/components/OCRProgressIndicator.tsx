@@ -22,7 +22,7 @@ const OCRProgressIndicator = ({
   const getIcon = () => {
     if (hasError) return <AlertCircle className="h-6 w-6 text-destructive" />;
     if (isComplete) return <CheckCircle className="h-6 w-6 text-success" />;
-    return <Cloud className="h-6 w-6 text-primary animate-pulse" />;
+    return <Brain className="h-6 w-6 text-primary animate-pulse" />;
   };
 
   const getStatusColor = () => {
@@ -68,11 +68,11 @@ const OCRProgressIndicator = ({
             </div>
             <div className={`flex items-center space-x-1 ${progress >= 40 ? 'text-primary' : 'text-muted-foreground'}`}>
               <div className={`w-2 h-2 rounded-full ${progress >= 40 ? 'bg-primary' : 'bg-muted'}`} />
-              <span>Prepare Data</span>
+              <span>AI Analysis</span>
             </div>
             <div className={`flex items-center space-x-1 ${progress >= 70 ? 'text-primary' : 'text-muted-foreground'}`}>
               <div className={`w-2 h-2 rounded-full ${progress >= 70 ? 'bg-primary' : 'bg-muted'}`} />
-              <span>Mistral OCR</span>
+              <span>MiniCPM-o OCR</span>
             </div>
             <div className={`flex items-center space-x-1 ${progress >= 90 ? 'text-primary' : 'text-muted-foreground'}`}>
               <div className={`w-2 h-2 rounded-full ${progress >= 90 ? 'bg-primary' : 'bg-muted'}`} />
@@ -84,11 +84,11 @@ const OCRProgressIndicator = ({
           <div className="grid grid-cols-2 gap-4 pt-4 border-t text-xs text-muted-foreground">
             <div>
               <div className="font-medium">OCR Engine</div>
-              <div>Mistral Vision API</div>
+              <div>MiniCPM-o 2.6</div>
             </div>
             <div>
               <div className="font-medium">Processing</div>
-              <div>Cloud-based AI</div>
+              <div>Hugging Face API</div>
             </div>
           </div>
         </div>
