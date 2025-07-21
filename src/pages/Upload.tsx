@@ -29,6 +29,7 @@ const Upload = () => {
   const handleFileUpload = (file: File) => {
     console.log('File uploaded:', file.name);
     setUploadedFile(file);
+    // Don't automatically reset state - let processing complete or fail
   };
 
   const handleProcessedData = async (data: any, session: any = null) => {

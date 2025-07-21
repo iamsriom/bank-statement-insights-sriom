@@ -44,6 +44,7 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
     },
     maxFiles: 1,
     maxSize: 10 * 1024 * 1024, // 10MB
+    disabled: uploadStatus === 'processing', // Prevent new uploads while processing
   });
 
   const handleOCRProcessed = useCallback((processedData: any) => {
@@ -59,6 +60,7 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
     setUploadStatus('error');
     setErrorMessage(error);
     setOcrStatus('Processing failed');
+    // Don't auto-retry - let user manually retry
   }, []);
 
   const handleOCRProgress = useCallback((progress: number, status: string) => {
@@ -84,7 +86,7 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
       case 'processing':
         return {
           main: "Processing your statement...",
-          sub: "Using AI to extract transaction data from your document"
+          sub: "Extracting transaction data from your document"
         };
       case 'success':
         return {
@@ -150,7 +152,7 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
     );
   }
 
-  // Show error state
+  // Show error state with manual retry option
   if (uploadStatus === 'error' && uploadedFile) {
     return (
       <div className={cn("space-y-4", className)}>
@@ -161,9 +163,18 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
           hasError={true}
           fileName={uploadedFile.name}
         />
-        <div className="flex justify-center">
+        <div className="flex justify-center space-x-4">
           <Button onClick={handleRetry} variant="outline">
-            Try Again
+            Try Different File
+          </Button>
+          <Button 
+            onClick={() => {
+              setUploadStatus('processing');
+              setErrorMessage(null);
+            }} 
+            variant="default"
+          >
+            Retry Processing
           </Button>
         </div>
       </div>
@@ -177,6 +188,7 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
         "relative overflow-hidden border-2 border-dashed cursor-pointer transition-all duration-300",
         isDragActive && !isDragReject && "border-primary bg-primary/5 scale-102",
         isDragReject && "border-destructive bg-destructive/5",
+        uploadStatus === 'processing' && "pointer-events-none opacity-75",
         className
       )}
     >
@@ -192,30 +204,32 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
           <p className="text-muted-foreground">{text.sub}</p>
         </div>
 
-        <div className="space-y-4">
-          <Button variant="outline" size="lg" className="mx-auto">
-            <FileText className="h-4 w-4 mr-2" />
-            Browse Files
-          </Button>
-          
-          <div className="flex items-center justify-center space-x-4 text-muted-foreground">
-            <div className="flex items-center space-x-2">
-              <Camera className="h-4 w-4" />
-              <span className="text-sm">Mobile: Take Photo</span>
+        {uploadStatus === 'idle' && (
+          <div className="space-y-4">
+            <Button variant="outline" size="lg" className="mx-auto">
+              <FileText className="h-4 w-4 mr-2" />
+              Browse Files
+            </Button>
+            
+            <div className="flex items-center justify-center space-x-4 text-muted-foreground">
+              <div className="flex items-center space-x-2">
+                <Camera className="h-4 w-4" />
+                <span className="text-sm">Mobile: Take Photo</span>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Security badges */}
       <div className="absolute bottom-4 left-4 right-4 flex justify-center space-x-4 text-xs text-muted-foreground">
         <div className="flex items-center space-x-1">
           <div className="w-2 h-2 bg-success rounded-full" />
-          <span>Client-side processing</span>
+          <span>Secure processing</span>
         </div>
         <div className="flex items-center space-x-1">
           <div className="w-2 h-2 bg-success rounded-full" />
-          <span>No server upload</span>
+          <span>No data stored locally</span>
         </div>
       </div>
     </Card>

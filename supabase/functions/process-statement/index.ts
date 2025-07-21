@@ -21,34 +21,33 @@ serve(async (req) => {
   try {
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      {
-        global: {
-          headers: { Authorization: req.headers.get('Authorization')! }
-        }
-      }
+      Deno.env.get('SUPABASE_ANON_KEY') ?? ''
     );
 
-    // Get user from JWT
-    const {
-      data: { user },
-      error: userError,
-    } = await supabaseClient.auth.getUser();
-
-    if (userError || !user) {
-      console.error('Auth error:', userError);
-      throw new Error('Unauthorized');
+    // Check for authentication but don't require it
+    let user = null;
+    const authHeader = req.headers.get('Authorization');
+    
+    if (authHeader) {
+      try {
+        const { data: { user: authUser }, error: userError } = await supabaseClient.auth.getUser();
+        if (!userError && authUser) {
+          user = authUser;
+        }
+      } catch (error) {
+        console.log('Auth check failed, proceeding anonymously:', error);
+      }
     }
 
     const { fileName, fileData, fileSize }: ProcessStatementRequest = await req.json();
 
-    console.log(`Processing statement: ${fileName} for user: ${user.id}, size: ${fileSize} bytes`);
+    console.log(`Processing statement: ${fileName} for ${user ? `user: ${user.id}` : 'anonymous user'}, size: ${fileSize} bytes`);
 
-    // Get Mistral API key from secrets
+    // Get API key from secrets
     const mistralApiKey = Deno.env.get('Mistral_API');
     if (!mistralApiKey) {
-      console.error('Mistral API key not found in environment');
-      throw new Error('Mistral API key not configured');
+      console.error('API key not found in environment');
+      throw new Error('OCR service not configured');
     }
 
     // Decode base64 file data
@@ -63,19 +62,8 @@ serve(async (req) => {
     let imageData: string;
 
     if (isPDF) {
-      console.log('Processing PDF file - converting to image...');
-      try {
-        // For PDFs, we'll convert to image using a different approach
-        // Since we can't use PDF.js in Deno, we'll try to extract text first
-        // or send as base64 with specific instructions
-        
-        // Try to send PDF as base64 to Mistral with specific instructions
-        imageData = `data:application/pdf;base64,${fileData}`;
-        console.log('PDF prepared for Mistral processing');
-      } catch (error) {
-        console.error('PDF processing error:', error);
-        throw new Error('Failed to process PDF file');
-      }
+      console.log('Processing PDF file...');
+      imageData = `data:application/pdf;base64,${fileData}`;
     } else {
       // For image files, use as-is
       const mimeType = fileName.toLowerCase().endsWith('.png') ? 'image/png' : 
@@ -85,7 +73,7 @@ serve(async (req) => {
       console.log('Image file prepared for processing');
     }
 
-    console.log('Starting OCR with Mistral Vision API...');
+    console.log('Starting OCR processing...');
 
     // Enhanced prompt for better transaction extraction
     const extractionPrompt = `You are a bank statement OCR expert. Extract ALL transactions from this document and return ONLY a valid JSON array.
@@ -120,8 +108,8 @@ Rules:
 
 Return ONLY the JSON array, nothing else.`;
 
-    // Call Mistral Vision API for OCR
-    const mistralResponse = await fetch('https://api.mistral.ai/v1/chat/completions', {
+    // Call Vision API for OCR
+    const apiResponse = await fetch('https://api.mistral.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${mistralApiKey}`,
@@ -151,24 +139,24 @@ Return ONLY the JSON array, nothing else.`;
       })
     });
 
-    if (!mistralResponse.ok) {
-      const errorText = await mistralResponse.text();
-      console.error('Mistral API error:', mistralResponse.status, errorText);
-      throw new Error(`Mistral API failed: ${mistralResponse.status} - ${errorText.substring(0, 200)}`);
+    if (!apiResponse.ok) {
+      const errorText = await apiResponse.text();
+      console.error('OCR API error:', apiResponse.status, errorText);
+      throw new Error(`OCR processing failed: ${apiResponse.status}`);
     }
 
-    const mistralResult = await mistralResponse.json();
-    console.log('Mistral response received successfully');
+    const apiResult = await apiResponse.json();
+    console.log('OCR response received successfully');
 
-    if (!mistralResult.choices || !mistralResult.choices[0] || !mistralResult.choices[0].message) {
-      console.error('Invalid Mistral response structure:', mistralResult);
-      throw new Error('Invalid response from Mistral API');
+    if (!apiResult.choices || !apiResult.choices[0] || !apiResult.choices[0].message) {
+      console.error('Invalid API response structure:', apiResult);
+      throw new Error('Invalid response from OCR service');
     }
 
     let extractedTransactions;
     try {
-      const content = mistralResult.choices[0].message.content;
-      console.log('Raw Mistral content length:', content.length);
+      const content = apiResult.choices[0].message.content;
+      console.log('Raw content length:', content.length);
       
       // Clean the content to extract just the JSON
       let cleanContent = content.trim();
@@ -186,8 +174,8 @@ Return ONLY the JSON array, nothing else.`;
       extractedTransactions = JSON.parse(jsonMatch[0]);
       console.log(`Successfully parsed ${extractedTransactions.length} transactions`);
     } catch (parseError) {
-      console.error('Failed to parse Mistral response:', parseError);
-      console.error('Raw content sample:', mistralResult.choices[0].message.content.substring(0, 500));
+      console.error('Failed to parse OCR response:', parseError);
+      console.error('Raw content sample:', apiResult.choices[0].message.content.substring(0, 500));
       throw new Error(`Failed to parse OCR results: ${parseError.message}`);
     }
 
@@ -238,30 +226,6 @@ Return ONLY the JSON array, nothing else.`;
       }
     });
 
-    // Generate encryption key and encrypt file data (256-bit AES)
-    const encryptionKey = crypto.getRandomValues(new Uint8Array(32));
-    const iv = crypto.getRandomValues(new Uint8Array(16));
-    
-    const key = await crypto.subtle.importKey(
-      'raw',
-      encryptionKey,
-      'AES-CBC',
-      false,
-      ['encrypt']
-    );
-
-    const encryptedData = await crypto.subtle.encrypt(
-      { name: 'AES-CBC', iv },
-      key,
-      fileBuffer
-    );
-
-    // Create file hash for integrity verification
-    const hashBuffer = await crypto.subtle.digest('SHA-256', fileBuffer);
-    const fileHash = Array.from(new Uint8Array(hashBuffer))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
-
     // Create Excel data structure
     const excelData = {
       sheets: [{
@@ -291,38 +255,77 @@ Return ONLY the JSON array, nothing else.`;
       }
     };
 
-    // Store encrypted statement in database
-    const { data: statement, error: insertError } = await supabaseClient
-      .from('bank_statements')
-      .insert({
-        user_id: user.id,
-        filename: fileName,
-        original_file_hash: fileHash,
-        encrypted_file_data: new Uint8Array(encryptedData),
-        file_size: fileSize,
-        processing_status: 'completed',
-        excel_data: excelData,
-        total_transactions: excelData.metadata.totalTransactions,
-        date_range_start: excelData.metadata.dateRange.start,
-        date_range_end: excelData.metadata.dateRange.end,
-        account_info: excelData.metadata.accountInfo
-      })
-      .select()
-      .single();
+    let statementId = null;
 
-    if (insertError) {
-      console.error('Database insert error:', insertError);
-      throw insertError;
+    // Only store in database if user is authenticated
+    if (user) {
+      try {
+        // Create file hash for integrity verification
+        const hashBuffer = await crypto.subtle.digest('SHA-256', fileBuffer);
+        const fileHash = Array.from(new Uint8Array(hashBuffer))
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('');
+
+        // Convert encrypted data to base64 string for database storage
+        const encryptionKey = crypto.getRandomValues(new Uint8Array(32));
+        const iv = crypto.getRandomValues(new Uint8Array(16));
+        
+        const key = await crypto.subtle.importKey(
+          'raw',
+          encryptionKey,
+          'AES-CBC',
+          false,
+          ['encrypt']
+        );
+
+        const encryptedData = await crypto.subtle.encrypt(
+          { name: 'AES-CBC', iv },
+          key,
+          fileBuffer
+        );
+
+        // Convert to base64 string for database storage
+        const encryptedBase64 = btoa(String.fromCharCode(...new Uint8Array(encryptedData)));
+
+        // Store encrypted statement in database
+        const { data: statement, error: insertError } = await supabaseClient
+          .from('bank_statements')
+          .insert({
+            user_id: user.id,
+            filename: fileName,
+            original_file_hash: fileHash,
+            encrypted_file_data: encryptedBase64,
+            file_size: fileSize,
+            processing_status: 'completed',
+            excel_data: excelData,
+            total_transactions: excelData.metadata.totalTransactions,
+            date_range_start: excelData.metadata.dateRange.start,
+            date_range_end: excelData.metadata.dateRange.end,
+            account_info: excelData.metadata.accountInfo
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          console.error('Database insert error:', insertError);
+          // Don't fail the whole request if database insert fails
+          console.log('Continuing without database storage');
+        } else {
+          statementId = statement.id;
+          console.log(`Statement stored successfully: ${statement.id}`);
+        }
+      } catch (error) {
+        console.error('Database storage error:', error);
+        // Continue without database storage
+      }
     }
 
-    console.log(`Statement processed successfully: ${statement.id}`);
-
-    // Return processed data with accuracy indicator
+    // Return processed data
     return new Response(JSON.stringify({
       success: true,
-      statementId: statement.id,
+      statementId: statementId,
       excelData: excelData,
-      accuracy: 95.2, // Mistral OCR accuracy estimate
+      accuracy: 95.2,
       processingComplete: true,
       metadata: {
         totalTransactions: excelData.metadata.totalTransactions,
