@@ -1,3 +1,4 @@
+
 import { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
@@ -17,14 +18,12 @@ const UploadZone = ({ onFileUpload, className }: UploadZoneProps) => {
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
     if (file) {
+      console.log('File dropped:', file.name, file.type, file.size);
       setUploadedFile(file);
       setUploadStatus('uploading');
       
-      // Simulate upload process
-      setTimeout(() => {
-        setUploadStatus('success');
-        onFileUpload?.(file);
-      }, 1500);
+      // Call the parent component's upload handler immediately
+      onFileUpload?.(file);
     }
   }, [onFileUpload]);
 
@@ -56,12 +55,12 @@ const UploadZone = ({ onFileUpload, className }: UploadZoneProps) => {
       case 'uploading':
         return {
           main: "Processing your statement...",
-          sub: "This may take a few moments"
+          sub: "Using Mistral AI to extract transaction data"
         };
       case 'success':
         return {
           main: "Statement uploaded successfully!",
-          sub: `${uploadedFile?.name} • ${(uploadedFile?.size || 0 / 1024 / 1024).toFixed(1)} MB`
+          sub: `${uploadedFile?.name} • ${((uploadedFile?.size || 0) / 1024 / 1024).toFixed(1)} MB`
         };
       case 'error':
         return {
@@ -87,6 +86,7 @@ const UploadZone = ({ onFileUpload, className }: UploadZoneProps) => {
         isDragReject && "border-destructive bg-destructive/5",
         uploadStatus === 'success' && "border-success bg-success/5",
         uploadStatus === 'error' && "border-destructive bg-destructive/5",
+        uploadStatus === 'uploading' && "border-primary bg-primary/5",
         className
       )}
     >
@@ -105,7 +105,7 @@ const UploadZone = ({ onFileUpload, className }: UploadZoneProps) => {
         {uploadStatus === 'idle' && (
           <div className="space-y-4">
             <Button variant="outline" size="lg" className="mx-auto">
-              <FileText className="h-4 w-4" />
+              <FileText className="h-4 w-4 mr-2" />
               Browse Files
             </Button>
             
@@ -116,12 +116,6 @@ const UploadZone = ({ onFileUpload, className }: UploadZoneProps) => {
               </div>
             </div>
           </div>
-        )}
-
-        {uploadStatus === 'success' && (
-          <Button variant="hero" size="lg" className="animate-scale-in">
-            Continue to Analysis
-          </Button>
         )}
 
         {uploadStatus === 'error' && (
@@ -147,7 +141,7 @@ const UploadZone = ({ onFileUpload, className }: UploadZoneProps) => {
         </div>
         <div className="flex items-center space-x-1">
           <div className="w-2 h-2 bg-success rounded-full" />
-          <span>No data stored</span>
+          <span>Secure processing</span>
         </div>
       </div>
     </Card>

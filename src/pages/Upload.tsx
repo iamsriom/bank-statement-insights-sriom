@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,8 +47,10 @@ const Upload = () => {
       const base64Data = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)));
       
       console.log('File converted to base64, calling Mistral OCR...');
+      console.log('File size:', file.size, 'bytes');
+      console.log('File type:', file.type);
 
-      // Call the process-statement edge function with Mistral OCR
+      // Call the process-statement edge function with enhanced error handling
       const { data, error } = await supabase.functions.invoke('process-statement', {
         body: {
           fileName: file.name,
@@ -62,19 +63,39 @@ const Upload = () => {
 
       if (error) {
         console.error('Edge function error:', error);
-        throw new Error(error.message || 'Failed to process statement');
+        setProcessingError(error.message || 'Failed to process statement');
+        setConversionStatus('error');
+        
+        toast({
+          title: "Processing Failed",
+          description: error.message || "Failed to process bank statement. Please try again.",
+          variant: "destructive",
+        });
+        return;
       }
 
-      if (!data || !data.excelData || !data.statementId) {
+      if (!data || !data.success || !data.excelData || !data.statementId) {
         console.error('Invalid response data:', data);
-        throw new Error('Invalid response from processing service');
+        const errorMsg = data?.details || 'Invalid response from processing service';
+        setProcessingError(errorMsg);
+        setConversionStatus('error');
+        
+        toast({
+          title: "Processing Failed",
+          description: errorMsg,
+          variant: "destructive",
+        });
+        return;
       }
 
       console.log('Successfully processed statement with Mistral OCR');
+      console.log('Extracted transactions:', data.excelData.metadata.totalTransactions);
+      
       setExcelData(data.excelData);
       setStatementId(data.statementId);
       setConversionStatus('completed');
       setCurrentStep('excel');
+      setProcessingError(null); // Clear any previous errors
       
       toast({
         title: "Statement Processed Successfully!",
@@ -83,28 +104,34 @@ const Upload = () => {
 
     } catch (error) {
       console.error('Upload error details:', error);
-      setProcessingError(error.message || 'Failed to process bank statement');
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      setProcessingError(errorMessage);
       setConversionStatus('error');
       
       toast({
         title: "Processing Failed",
-        description: error.message || "Failed to process bank statement. Please try again with a different file.",
+        description: errorMessage,
         variant: "destructive",
       });
     }
   };
 
   const handleRetryUpload = () => {
+    console.log('Retrying upload process...');
     setUploadedFile(null);
     setConversionStatus('idle');
     setProcessingError(null);
     setCurrentStep('upload');
     setExcelData(null);
     setStatementId(null);
+    setAnalysisData(null);
   };
 
   const handleContinueToCategorizationFromTable = () => {
+    console.log('Continuing to categorization with data:', { excelData: !!excelData, statementId });
+    
     if (!excelData || !statementId) {
+      console.error('Missing data for categorization:', { excelData: !!excelData, statementId });
       toast({
         title: "Error",
         description: "No processed data available. Please upload a statement first.",
@@ -112,7 +139,9 @@ const Upload = () => {
       });
       return;
     }
+    
     setCurrentStep('categorization');
+    console.log('Successfully moved to categorization step');
   };
 
   const handleAnalysis = async (categorizationConfig: any) => {
@@ -322,6 +351,7 @@ const Upload = () => {
                     <Button 
                       onClick={handleContinueToCategorizationFromTable}
                       className="bg-gradient-primary"
+                      disabled={!excelData || !statementId}
                     >
                       <Settings className="h-4 w-4 mr-2" />
                       Continue to Analysis Setup
