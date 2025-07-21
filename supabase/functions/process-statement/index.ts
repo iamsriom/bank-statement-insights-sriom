@@ -11,6 +11,15 @@ interface ProcessStatementRequest {
   fileName: string;
   fileData: string; // base64 encoded file
   fileSize: number;
+  fileHash?: string; // Optional file hash for deduplication
+}
+
+interface ProcessingResult {
+  success: boolean;
+  statementId?: string;
+  excelData?: any;
+  error?: string;
+  fromCache?: boolean;
 }
 
 serve(async (req) => {
@@ -39,36 +48,151 @@ serve(async (req) => {
       }
     }
 
-    const { fileName, fileData, fileSize }: ProcessStatementRequest = await req.json();
+    const { fileName, fileData, fileSize, fileHash }: ProcessStatementRequest = await req.json();
 
     console.log(`Processing statement: ${fileName} for ${user ? `user: ${user.id}` : 'anonymous user'}, size: ${fileSize} bytes`);
 
-    // Get Hugging Face API key from secrets
-    const hfApiKey = Deno.env.get('Huggingface_API');
-    if (!hfApiKey) {
-      console.error('Hugging Face API key not found in environment');
+    // Generate file hash for deduplication
+    const fileBuffer = Uint8Array.from(atob(fileData), c => c.charCodeAt(0));
+    const hashBuffer = await crypto.subtle.digest('SHA-256', fileBuffer);
+    const calculatedFileHash = Array.from(new Uint8Array(hashBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    console.log(`File hash: ${calculatedFileHash}`);
+
+    // Check for existing processed results (cache)
+    if (user) {
+      const { data: existingStatement, error: cacheError } = await supabaseClient
+        .from('bank_statements')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('original_file_hash', calculatedFileHash)
+        .eq('processing_status', 'completed')
+        .maybeSingle();
+
+      if (!cacheError && existingStatement) {
+        console.log('Found cached result for file hash:', calculatedFileHash);
+        return new Response(JSON.stringify({
+          success: true,
+          statementId: existingStatement.id,
+          excelData: existingStatement.excel_data,
+          fromCache: true,
+          processingComplete: true,
+          ocrEngine: 'Mistral-Document-OCR',
+          metadata: {
+            totalTransactions: existingStatement.total_transactions,
+            dateRange: {
+              start: existingStatement.date_range_start,
+              end: existingStatement.date_range_end
+            },
+            accountInfo: existingStatement.account_info
+          }
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    // Get Mistral API key from secrets
+    const mistralApiKey = Deno.env.get('Mistral_API');
+    if (!mistralApiKey) {
+      console.error('Mistral API key not found in environment');
       throw new Error('OCR service not configured');
     }
 
-    // Decode base64 file data
-    const fileBuffer = Uint8Array.from(atob(fileData), c => c.charCodeAt(0));
-    
-    console.log('File decoded, starting MiniCPM-o OCR processing...');
+    console.log('Starting Mistral Document OCR processing...');
 
-    // Check if it's a PDF by looking at the file signature
+    // Detect file type
     const isPDF = fileName.toLowerCase().endsWith('.pdf') || 
                   (fileBuffer[0] === 0x25 && fileBuffer[1] === 0x50 && fileBuffer[2] === 0x44 && fileBuffer[3] === 0x46);
 
     console.log(`File type detected: ${isPDF ? 'PDF' : 'Image'}`);
 
-    // Enhanced prompt for MiniCPM-o OCR
-    const ocrPrompt = `You are a bank statement OCR expert. Extract ALL transaction data from this document and return ONLY a valid JSON array.
+    // Step 1: Extract text using Mistral Document OCR
+    let extractedText = '';
+    let retryCount = 0;
+    const maxRetries = 3;
+
+    while (retryCount < maxRetries) {
+      try {
+        console.log(`Mistral Document OCR attempt ${retryCount + 1}/${maxRetries}`);
+        
+        const ocrResponse = await fetch('https://api.mistral.ai/v1/document/ocr', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${mistralApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            inputs: [{
+              document: {
+                b64: fileData
+              }
+            }]
+          }),
+        });
+
+        if (!ocrResponse.ok) {
+          const errorBody = await ocrResponse.json().catch(() => null);
+          console.error(`Mistral OCR API error (attempt ${retryCount + 1}):`, ocrResponse.status, errorBody);
+          
+          if (ocrResponse.status === 429) {
+            console.log('Rate limited, waiting before retry...');
+            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+            throw new Error('Rate limited, retrying...');
+          }
+          
+          if (ocrResponse.status >= 500) {
+            console.log('Server error, retrying...');
+            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+            throw new Error('Server error, retrying...');
+          }
+          
+          throw new Error(`Mistral OCR API error: ${ocrResponse.status} - ${JSON.stringify(errorBody)}`);
+        }
+
+        const ocrResult = await ocrResponse.json();
+        console.log('Mistral OCR response received successfully');
+        
+        // Extract text from OCR response
+        if (ocrResult.outputs && ocrResult.outputs[0] && ocrResult.outputs[0].text) {
+          extractedText = ocrResult.outputs[0].text;
+          console.log(`OCR extracted text length: ${extractedText.length}`);
+          console.log('First 500 characters:', extractedText.substring(0, 500));
+          break; // Success, exit retry loop
+        } else {
+          console.error('No text extracted from OCR response:', ocrResult);
+          throw new Error('No text extracted from document');
+        }
+
+      } catch (error) {
+        console.error(`Mistral OCR processing error (attempt ${retryCount + 1}):`, error);
+        retryCount++;
+        
+        if (retryCount >= maxRetries) {
+          throw new Error(`OCR processing failed after ${maxRetries} attempts: ${error.message}`);
+        }
+        
+        // Wait before retrying (exponential backoff with jitter)
+        const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    if (!extractedText) {
+      throw new Error('Failed to extract text from document');
+    }
+
+    // Step 2: Structure the extracted text into transaction data using Mistral Chat API
+    console.log('Structuring extracted text into transaction data...');
+    
+    const structuringPrompt = `You are a bank statement analysis expert. Extract ALL transaction data from this bank statement text and return ONLY a valid JSON array.
 
 CRITICAL REQUIREMENTS:
 1. Return ONLY valid JSON - no explanations, no markdown, no other text
 2. Extract ALL visible transactions from the entire document
-3. Handle multiple pages if present
-4. Process all text layers and visual elements
+3. Process all transaction entries thoroughly
 
 Required JSON format:
 [
@@ -90,122 +214,71 @@ Rules:
 - Include balance if visible on statement
 - Extract merchant names cleanly
 - Handle multi-line descriptions by combining them
-- Process the entire document thoroughly
+
+Bank Statement Text:
+${extractedText}
 
 Return ONLY the JSON array, nothing else.`;
 
-    let apiResponse;
-    let retryCount = 0;
-    const maxRetries = 2;
-
-    while (retryCount <= maxRetries) {
-      try {
-        console.log(`MiniCPM-o OCR attempt ${retryCount + 1}/${maxRetries + 1}`);
-        
-        // Prepare the image data for MiniCPM-o
-        const imageData = `data:${isPDF ? 'application/pdf' : 'image/jpeg'};base64,${fileData}`;
-        
-        // Use Hugging Face Inference API with MiniCPM-o
-        apiResponse = await fetch('https://api-inference.huggingface.co/models/openbmb/MiniCPM-o-2_6', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${hfApiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            inputs: {
-              image: imageData,
-              question: ocrPrompt
-            },
-            parameters: {
-              max_new_tokens: 4000,
-              temperature: 0.1,
-              top_p: 0.9,
-              do_sample: false
-            }
-          }),
-        });
-
-        if (!apiResponse.ok) {
-          const errBody = await apiResponse.json().catch(() => null);
-          console.error('MiniCPM-o API error body:', errBody);
-          console.error(`MiniCPM-o API error (attempt ${retryCount + 1}): ${apiResponse.status}`);
-          
-          // Check if model is loading
-          if (apiResponse.status === 503 && errBody?.error?.includes('loading')) {
-            console.log('Model is loading, waiting 10 seconds...');
-            await new Promise(resolve => setTimeout(resolve, 10000));
-            throw new Error('Model loading, retrying...');
+    const structureResponse = await fetch('https://api.mistral.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${mistralApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'mistral-large-latest',
+        messages: [
+          {
+            role: 'user',
+            content: structuringPrompt
           }
-          
-          throw new Error(`MiniCPM-o API error: ${apiResponse.status} - ${JSON.stringify(errBody)}`);
-        }
+        ],
+        temperature: 0.1,
+        max_tokens: 4000
+      }),
+    });
 
-        const apiResult = await apiResponse.json();
-        console.log('MiniCPM-o OCR response received successfully');
-        console.log('Response structure:', JSON.stringify(apiResult, null, 2));
+    if (!structureResponse.ok) {
+      const errorBody = await structureResponse.json().catch(() => null);
+      console.error('Mistral Chat API error:', structureResponse.status, errorBody);
+      throw new Error(`Failed to structure transaction data: ${structureResponse.status}`);
+    }
 
-        // Extract the generated text from MiniCPM-o response
-        let extractedContent;
-        if (Array.isArray(apiResult)) {
-          extractedContent = apiResult[0]?.generated_text || apiResult[0]?.answer || '';
-        } else {
-          extractedContent = apiResult.generated_text || apiResult.answer || '';
-        }
+    const structureResult = await structureResponse.json();
+    const structuredContent = structureResult.choices[0].message.content;
 
-        if (!extractedContent) {
-          console.error('No content extracted from MiniCPM-o response:', apiResult);
-          throw new Error('No content extracted from OCR response');
-        }
+    console.log('Structured content received, length:', structuredContent.length);
+    console.log('First 500 characters:', structuredContent.substring(0, 500));
 
-        console.log('Raw OCR content length:', extractedContent.length);
-        console.log('First 500 characters:', extractedContent.substring(0, 500));
-
-        // Parse the JSON response
-        let extractedTransactions;
-        try {
-          // Clean the content to extract just the JSON
-          let cleanContent = extractedContent.trim();
-          
-          // Remove any text before the JSON array
-          const jsonStart = cleanContent.indexOf('[');
-          const jsonEnd = cleanContent.lastIndexOf(']');
-          
-          if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
-            cleanContent = cleanContent.substring(jsonStart, jsonEnd + 1);
-          }
-          
-          extractedTransactions = JSON.parse(cleanContent);
-          console.log(`Successfully parsed ${extractedTransactions.length} transactions`);
-        } catch (parseError) {
-          console.error('Failed to parse OCR response:', parseError);
-          console.error('Raw content sample:', extractedContent.substring(0, 1000));
-          throw new Error(`Failed to parse OCR results: ${parseError.message}`);
-        }
-
-        if (!Array.isArray(extractedTransactions) || extractedTransactions.length === 0) {
-          console.error('No transactions extracted or invalid format:', extractedTransactions);
-          throw new Error('No transactions found in the statement. Please ensure the document contains visible transaction data.');
-        }
-
-        console.log(`Successfully extracted ${extractedTransactions.length} transactions with MiniCPM-o`);
-        break; // Success, exit retry loop
-
-      } catch (error) {
-        console.error(`MiniCPM-o processing error (attempt ${retryCount + 1}):`, error);
-        if (retryCount >= maxRetries) {
-          throw error;
-        }
-        retryCount++;
-        
-        // Wait before retrying (exponential backoff)
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+    // Parse the structured JSON response
+    let extractedTransactions;
+    try {
+      // Clean the content to extract just the JSON
+      let cleanContent = structuredContent.trim();
+      
+      // Remove any text before the JSON array
+      const jsonStart = cleanContent.indexOf('[');
+      const jsonEnd = cleanContent.lastIndexOf(']');
+      
+      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        cleanContent = cleanContent.substring(jsonStart, jsonEnd + 1);
       }
+      
+      extractedTransactions = JSON.parse(cleanContent);
+      console.log(`Successfully parsed ${extractedTransactions.length} transactions`);
+    } catch (parseError) {
+      console.error('Failed to parse structured response:', parseError);
+      console.error('Raw content sample:', structuredContent.substring(0, 1000));
+      throw new Error(`Failed to parse transaction data: ${parseError.message}`);
     }
 
-    if (!apiResponse || !apiResponse.ok) {
-      throw new Error('OCR processing failed after all retries');
+    if (!Array.isArray(extractedTransactions) || extractedTransactions.length === 0) {
+      console.error('No transactions extracted or invalid format:', extractedTransactions);
+      throw new Error('No transactions found in the statement. Please ensure the document contains visible transaction data.');
     }
+
+    console.log(`Successfully extracted ${extractedTransactions.length} transactions with Mistral`);
 
     // Validate and clean transaction data
     const validatedTransactions = extractedTransactions.map((transaction, index) => {
@@ -278,15 +351,9 @@ Return ONLY the JSON array, nothing else.`;
 
     let statementId = null;
 
-    // Only store in database if user is authenticated
+    // Store in database if user is authenticated
     if (user) {
       try {
-        // Create file hash for integrity verification
-        const hashBuffer = await crypto.subtle.digest('SHA-256', fileBuffer);
-        const fileHash = Array.from(new Uint8Array(hashBuffer))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('');
-
         // Convert encrypted data to BYTEA for database storage
         const encryptionKey = crypto.getRandomValues(new Uint8Array(32));
         const iv = crypto.getRandomValues(new Uint8Array(16));
@@ -305,7 +372,6 @@ Return ONLY the JSON array, nothing else.`;
           fileBuffer
         );
 
-        // Convert to BYTEA for database storage
         const encryptedBytes = new Uint8Array(encryptedData);
 
         // Store encrypted statement in database
@@ -314,7 +380,7 @@ Return ONLY the JSON array, nothing else.`;
           .insert({
             user_id: user.id,
             filename: fileName,
-            original_file_hash: fileHash,
+            original_file_hash: calculatedFileHash,
             encrypted_file_data: encryptedBytes,
             file_size: fileSize,
             processing_status: 'completed',
@@ -329,7 +395,6 @@ Return ONLY the JSON array, nothing else.`;
 
         if (insertError) {
           console.error('Database insert error:', insertError);
-          // Don't fail the whole request if database insert fails
           console.log('Continuing without database storage');
         } else {
           statementId = statement.id;
@@ -346,9 +411,9 @@ Return ONLY the JSON array, nothing else.`;
       success: true,
       statementId: statementId,
       excelData: excelData,
-      accuracy: 98.5, // MiniCPM-o typically has higher accuracy
+      accuracy: 97.5, // Mistral Document OCR typically has high accuracy
       processingComplete: true,
-      ocrEngine: 'MiniCPM-o-2.6',
+      ocrEngine: 'Mistral-Document-OCR',
       metadata: {
         totalTransactions: excelData.metadata.totalTransactions,
         dateRange: excelData.metadata.dateRange,

@@ -28,9 +28,22 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
     });
   }, []);
 
+  const generateFileHash = useCallback(async (fileData: string): Promise<string> => {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(fileData);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }, []);
+
   const processWithAPI = useCallback(async (fileData: string, fileName: string, fileSize: number) => {
     try {
-      onProgress(60, "Processing document with AI...");
+      onProgress(40, "Checking for cached results...");
+      
+      // Generate file hash for deduplication
+      const fileHash = await generateFileHash(fileData);
+      
+      onProgress(60, "Processing document with Mistral OCR...");
       
       // Get current session for authentication (optional)
       const { data: { session } } = await supabase.auth.getSession();
@@ -39,7 +52,8 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
         body: {
           fileName,
           fileData,
-          fileSize
+          fileSize,
+          fileHash
         },
         headers: session ? { Authorization: `Bearer ${session.access_token}` } : {}
       });
@@ -58,7 +72,7 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
       console.error('API processing error:', error);
       throw error;
     }
-  }, [onProgress]);
+  }, [onProgress, generateFileHash]);
 
   const processDocument = useCallback(async () => {
     if (isProcessing || hasProcessed.current) return;
@@ -79,8 +93,6 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
       onProgress(20, "Preparing document...");
       const fileData = await convertFileToBase64(file);
       
-      onProgress(40, "Uploading to processing service...");
-      
       // Process with API
       const processedData = await processWithAPI(fileData, file.name, file.size);
       
@@ -88,7 +100,11 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
         throw new Error('Processing failed');
       }
 
-      onProgress(90, "Finalizing results...");
+      if (processedData.fromCache) {
+        onProgress(100, "Retrieved from cache - instant results!");
+      } else {
+        onProgress(90, "Finalizing results...");
+      }
       
       // Transform response to match expected format
       const finalData = {
