@@ -60,8 +60,8 @@ const HeroSection = () => {
             Try Free - No signup required
           </p>
           
-          <Button variant="outline" size="lg" className="group">
-            See Sample Analysis
+          <Button variant="outline" size="lg" className="group" onClick={() => window.location.href = '/auth?mode=signup'}>
+            Get Started for Free
             <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
           </Button>
         </div>

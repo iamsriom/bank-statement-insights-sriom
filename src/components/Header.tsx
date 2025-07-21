@@ -30,16 +30,16 @@ const Header = () => {
             <a href="#security" className="text-muted-foreground hover:text-foreground transition-colors">
               Security
             </a>
-            <Button variant="ghost" onClick={() => navigate("/login")}>
+            <Button variant="ghost" onClick={() => navigate("/auth")}>
               Login
             </Button>
           </nav>
 
           {/* Upload Button */}
           <div className="hidden md:block">
-            <Button variant="hero" size="lg" onClick={() => navigate("/upload")}>
+            <Button variant="hero" size="lg" onClick={() => navigate("/auth?mode=signup")}>
               <Upload className="h-4 w-4" />
-              Upload Statement
+              Get Started
             </Button>
           </div>
 
@@ -65,12 +65,12 @@ const Header = () => {
               <a href="#security" className="text-muted-foreground hover:text-foreground transition-colors">
                 Security
               </a>
-              <Button variant="ghost" className="justify-start" onClick={() => navigate("/login")}>
+              <Button variant="ghost" className="justify-start" onClick={() => navigate("/auth")}>
                 Login
               </Button>
-              <Button variant="hero" onClick={() => navigate("/upload")}>
+              <Button variant="hero" onClick={() => navigate("/auth?mode=signup")}>
                 <Upload className="h-4 w-4" />
-                Upload Statement
+                Get Started
               </Button>
             </nav>
           </div>
