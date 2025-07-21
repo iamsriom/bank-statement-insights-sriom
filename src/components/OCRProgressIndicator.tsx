@@ -27,7 +27,7 @@ const OCRProgressIndicator = ({
 
   const getStatusColor = () => {
     if (hasError) return "destructive";
-    if (isComplete) return "success";
+    if (isComplete) return "default";
     return "secondary";
   };
 

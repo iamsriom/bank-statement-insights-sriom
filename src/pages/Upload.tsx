@@ -54,6 +54,7 @@ const Upload = () => {
           user_id: session.user.id,
           filename: data.originalFile.name,
           original_file_hash: 'browser_processed_' + Date.now(),
+          encrypted_file_data: btoa(JSON.stringify(data)),
           file_size: data.originalFile.size,
           processing_status: 'completed',
           excel_data: {
@@ -75,8 +76,7 @@ const Upload = () => {
           total_transactions: data.metadata.totalTransactions,
           date_range_start: data.metadata.dateRange.start,
           date_range_end: data.metadata.dateRange.end,
-          account_info: data.metadata.accountInfo,
-          encrypted_file_data: new Uint8Array(), // Empty since we processed client-side
+          account_info: data.metadata.accountInfo
         })
         .select()
         .single();
