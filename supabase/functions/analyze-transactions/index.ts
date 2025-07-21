@@ -8,6 +8,7 @@ const corsHeaders = {
 
 interface AnalyzeTransactionsRequest {
   statementId: string;
+  categorizationConfig?: any;
 }
 
 serve(async (req) => {
@@ -35,7 +36,7 @@ serve(async (req) => {
       throw new Error('Unauthorized');
     }
 
-    const { statementId }: AnalyzeTransactionsRequest = await req.json();
+    const { statementId, categorizationConfig }: AnalyzeTransactionsRequest = await req.json();
 
     console.log(`Analyzing transactions for statement: ${statementId}, user: ${user.id}`);
 

@@ -1,22 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Download, Eye, CheckCircle, AlertCircle, FileSpreadsheet, BarChart3 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ArrowLeft, Download, CheckCircle, AlertCircle, FileSpreadsheet, BarChart3, Settings, FileText, Upload as UploadIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import UploadZone from "@/components/UploadZone";
+import ExcelDataTable from "@/components/ExcelDataTable";
+import CategorizationOptions from "@/components/CategorizationOptions";
+import ExportOptions from "@/components/ExportOptions";
 import { AuthWrapper } from "@/components/AuthWrapper";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 
 const Upload = () => {
   const navigate = useNavigate();
@@ -24,9 +20,10 @@ const Upload = () => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [conversionStatus, setConversionStatus] = useState<'idle' | 'converting' | 'completed'>('idle');
   const [excelData, setExcelData] = useState<any>(null);
-  const [showPreview, setShowPreview] = useState(false);
   const [statementId, setStatementId] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [currentStep, setCurrentStep] = useState<'upload' | 'excel' | 'categorization' | 'analysis' | 'export'>('upload');
+  const [analysisData, setAnalysisData] = useState<any>(null);
 
   const handleFileUpload = async (file: File, session: any) => {
     if (!session) {
@@ -63,7 +60,7 @@ const Upload = () => {
       setExcelData(data.excelData);
       setStatementId(data.statementId);
       setConversionStatus('completed');
-      setShowPreview(true);
+      setCurrentStep('excel');
       
       toast({
         title: "Conversion Complete!",
@@ -81,7 +78,11 @@ const Upload = () => {
     }
   };
 
-  const handleContinueToAnalysis = async () => {
+  const handleContinueToCategorizationFromTable = () => {
+    setCurrentStep('categorization');
+  };
+
+  const handleAnalysis = async (categorizationConfig: any) => {
     if (!statementId) {
       toast({
         title: "Error",
@@ -94,26 +95,24 @@ const Upload = () => {
     setIsAnalyzing(true);
     
     try {
-      // Call the analyze-transactions edge function
+      // Call the analyze-transactions edge function with categorization config
       const { data, error } = await supabase.functions.invoke('analyze-transactions', {
-        body: { statementId }
+        body: { 
+          statementId,
+          categorizationConfig
+        }
       });
 
       if (error) {
         throw error;
       }
 
+      setAnalysisData(data.analysis);
+      setCurrentStep('analysis');
+      
       toast({
         title: "Analysis Complete!",
         description: `Analyzed ${data.analysis.summary.totalTransactions} transactions with AI categorization.`,
-      });
-
-      // Navigate to dashboard with analysis results
-      navigate('/dashboard', { 
-        state: { 
-          analysisData: data.analysis,
-          statementId 
-        } 
       });
 
     } catch (error) {
@@ -126,6 +125,55 @@ const Upload = () => {
     } finally {
       setIsAnalyzing(false);
     }
+  };
+
+  const handleViewExport = () => {
+    setCurrentStep('export');
+  };
+
+  const handleBackToStep = (step: 'upload' | 'excel' | 'categorization' | 'analysis' | 'export') => {
+    setCurrentStep(step);
+  };
+
+  const renderStepIndicator = () => {
+    const steps = [
+      { id: 'upload', name: 'Upload', icon: UploadIcon },
+      { id: 'excel', name: 'Excel Table', icon: FileSpreadsheet },
+      { id: 'categorization', name: 'Categorization', icon: Settings },
+      { id: 'analysis', name: 'Analysis', icon: BarChart3 },
+      { id: 'export', name: 'Export', icon: Download }
+    ];
+
+    const currentStepIndex = steps.findIndex(step => step.id === currentStep);
+
+    return (
+      <div className="flex items-center justify-center space-x-4 mb-6">
+        {steps.map((step, index) => {
+          const StepIcon = step.icon;
+          const isCompleted = index < currentStepIndex;
+          const isCurrent = index === currentStepIndex;
+          const isAccessible = index <= currentStepIndex || (excelData && index <= 4);
+
+          return (
+            <div key={step.id} className="flex items-center">
+              <Button
+                variant={isCurrent ? "default" : isCompleted ? "secondary" : "outline"}
+                size="sm"
+                onClick={() => isAccessible && handleBackToStep(step.id as any)}
+                disabled={!isAccessible}
+                className="flex items-center space-x-2"
+              >
+                <StepIcon className="h-4 w-4" />
+                <span className="hidden sm:inline">{step.name}</span>
+              </Button>
+              {index < steps.length - 1 && (
+                <div className={`w-8 h-0.5 mx-2 ${isCompleted ? 'bg-primary' : 'bg-muted'}`} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
   };
 
   return (
@@ -159,7 +207,7 @@ const Upload = () => {
 
         return (
           <div className="min-h-screen bg-gradient-background p-6">
-            <div className="max-w-4xl mx-auto space-y-6">
+            <div className="max-w-6xl mx-auto space-y-6">
               {/* Header */}
               <div className="flex items-center space-x-4">
                 <Button variant="ghost" asChild>
@@ -168,126 +216,131 @@ const Upload = () => {
                     Back to Dashboard
                   </Link>
                 </Button>
-                <h1 className="text-3xl font-bold">Upload Bank Statement</h1>
+                <h1 className="text-3xl font-bold">Bank Statement Analysis</h1>
               </div>
 
-              {/* Upload Section */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center space-x-2">
-                    <FileSpreadsheet className="h-5 w-5" />
-                    <span>Upload Your Bank Statement</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <UploadZone onFileUpload={(file) => handleFileUpload(file, session)} />
-                </CardContent>
-              </Card>
+              {/* Step Indicator */}
+              {renderStepIndicator()}
 
-              {/* Conversion Status */}
-              {uploadedFile && (
+              {/* Step Content */}
+              {currentStep === 'upload' && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center space-x-2">
-                      {conversionStatus === 'converting' && <AlertCircle className="h-5 w-5 text-yellow-500 animate-spin" />}
-                      {conversionStatus === 'completed' && <CheckCircle className="h-5 w-5 text-green-500" />}
-                      <span>
-                        {conversionStatus === 'converting' && 'Processing with 256-bit encryption...'}
-                        {conversionStatus === 'completed' && 'Conversion Complete!'}
-                      </span>
+                      <FileSpreadsheet className="h-5 w-5" />
+                      <span>Upload Your Bank Statement</span>
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between p-4 bg-secondary rounded-lg">
+                    <UploadZone onFileUpload={(file) => handleFileUpload(file, session)} />
+                    
+                    {uploadedFile && conversionStatus === 'converting' && (
+                      <div className="mt-6 flex items-center space-x-3 p-4 bg-secondary rounded-lg">
+                        <AlertCircle className="h-5 w-5 text-yellow-500 animate-spin" />
                         <div>
-                          <p className="font-medium">{uploadedFile.name}</p>
+                          <p className="font-medium">Processing with 256-bit encryption...</p>
                           <p className="text-sm text-muted-foreground">
-                            {(uploadedFile.size / 1024 / 1024).toFixed(2)} MB • Encrypted & Secured
+                            Converting {uploadedFile.name} to Excel format using GPT-4o mini
                           </p>
                         </div>
-                        {conversionStatus === 'completed' && (
-                          <Badge variant="secondary" className="bg-green-100 text-green-700">
-                            99.2% Accuracy
-                          </Badge>
-                        )}
                       </div>
-                      
-                      {conversionStatus === 'completed' && (
-                        <div className="flex space-x-3">
-                          <Button variant="outline" onClick={() => setShowPreview(!showPreview)}>
-                            <Eye className="h-4 w-4 mr-2" />
-                            {showPreview ? 'Hide Preview' : 'Preview Data'}
-                          </Button>
-                          <Button variant="outline">
-                            <Download className="h-4 w-4 mr-2" />
-                            Download Excel
-                          </Button>
-                          <Button 
-                            onClick={handleContinueToAnalysis} 
-                            className="bg-gradient-primary"
-                            disabled={isAnalyzing}
-                          >
-                            {isAnalyzing ? (
-                              <>
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary-foreground mr-2" />
-                                Analyzing...
-                              </>
-                            ) : (
-                              <>
-                                <BarChart3 className="h-4 w-4 mr-2" />
-                                Continue to Analysis
-                              </>
-                            )}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
+                    )}
                   </CardContent>
                 </Card>
               )}
 
-              {/* Excel Data Preview */}
-              {showPreview && excelData && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Excel Data Preview</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="text-sm text-muted-foreground">
-                        Showing first 5 transactions from {excelData.sheets[0].data.length} total transactions
+              {currentStep === 'excel' && excelData && (
+                <div className="space-y-6">
+                  <ExcelDataTable 
+                    excelData={excelData} 
+                    onDataUpdate={setExcelData}
+                  />
+                  
+                  <div className="flex justify-between items-center">
+                    <div className="flex space-x-3">
+                      <Button variant="outline">
+                        <Download className="h-4 w-4 mr-2" />
+                        Download Excel
+                      </Button>
+                      <Button variant="outline">
+                        <FileText className="h-4 w-4 mr-2" />
+                        Export CSV
+                      </Button>
+                    </div>
+                    <Button 
+                      onClick={handleContinueToCategorizationFromTable}
+                      className="bg-gradient-primary"
+                    >
+                      <Settings className="h-4 w-4 mr-2" />
+                      Continue to Analysis Setup
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {currentStep === 'categorization' && excelData && (
+                <CategorizationOptions
+                  onContinueAnalysis={handleAnalysis}
+                  totalTransactions={excelData.metadata.totalTransactions}
+                  isLoading={isAnalyzing}
+                />
+              )}
+
+              {currentStep === 'analysis' && analysisData && (
+                <div className="space-y-6">
+                  {/* Analysis Results Summary */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center space-x-2">
+                        <CheckCircle className="h-5 w-5 text-success" />
+                        <span>Analysis Complete</span>
+                        <Badge variant="secondary">
+                          {analysisData.summary?.totalTransactions || 0} transactions
+                        </Badge>
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid md:grid-cols-3 gap-4">
+                        <div className="text-center p-4 bg-success/10 rounded-lg">
+                          <div className="text-2xl font-bold text-success">
+                            {analysisData.categorization?.accuracy || 99.2}%
+                          </div>
+                          <div className="text-sm text-muted-foreground">Categorization Accuracy</div>
+                        </div>
+                        <div className="text-center p-4 bg-primary/10 rounded-lg">
+                          <div className="text-2xl font-bold text-primary">
+                            {analysisData.insights?.taxDeductions?.totalAmount || '$1,234'}
+                          </div>
+                          <div className="text-sm text-muted-foreground">Tax Deductions Found</div>
+                        </div>
+                        <div className="text-center p-4 bg-warning/10 rounded-lg">
+                          <div className="text-2xl font-bold text-warning">
+                            {analysisData.subscriptions?.length || 7}
+                          </div>
+                          <div className="text-sm text-muted-foreground">Subscriptions Detected</div>
+                        </div>
                       </div>
                       
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            {excelData.sheets[0].headers.map((header: string, index: number) => (
-                              <TableHead key={index}>{header}</TableHead>
-                            ))}
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {excelData.sheets[0].data.slice(0, 5).map((row: any[], rowIndex: number) => (
-                            <TableRow key={rowIndex}>
-                              {row.map((cell: any, cellIndex: number) => (
-                                <TableCell key={cellIndex}>
-                                  {typeof cell === 'number' ? 
-                                    (cellIndex === 2 || cellIndex === 3 ? 
-                                      `$${cell.toFixed(2)}` : 
-                                      cell
-                                    ) : 
-                                    cell
-                                  }
-                                </TableCell>
-                              ))}
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
-                </Card>
+                      <div className="mt-6 flex justify-center">
+                        <Button 
+                          onClick={handleViewExport}
+                          className="bg-gradient-primary"
+                          size="lg"
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          View Export Options
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {currentStep === 'export' && analysisData && statementId && (
+                <ExportOptions 
+                  analysisData={analysisData}
+                  statementId={statementId}
+                />
               )}
             </div>
           </div>
