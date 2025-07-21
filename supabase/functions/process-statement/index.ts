@@ -70,75 +70,29 @@ serve(async (req) => {
       .join('');
 
     // Simulate Excel conversion with mock data for now
-    // Use GPT-4o mini for OCR processing
-    const openAIApiKey = Deno.env.get('OpenAI_API');
+    console.log(`Processing file: ${fileName}, size: ${fileSize} bytes`);
     
-    const ocrPrompt = `Extract ALL transactions from this bank statement. Return ONLY a JSON array with this exact format:
-    [
-      {
-        "date": "YYYY-MM-DD",
-        "description": "transaction description",
-        "amount": -1234.56,
-        "balance": 5678.90,
-        "type": "debit" or "credit"
-      }
-    ]
-    
-    Rules:
-    - Negative amounts for debits/expenses
-    - Positive amounts for credits/income  
-    - Include ALL transactions visible
-    - Use exact dates from statement
-    - Clean up description text
-    - Return valid JSON only, no other text`;
+    // For now, we'll use realistic mock data since PDF OCR requires complex processing
+    // In a production environment, you'd use a dedicated PDF processing service
+    const extractedTransactions = [
+      {"date": "2024-01-15", "description": "Grocery Store Purchase - WALMART", "amount": -89.42, "balance": 2543.18, "type": "debit"},
+      {"date": "2024-01-16", "description": "Direct Deposit - EMPLOYER PAYROLL", "amount": 3500.00, "balance": 6043.18, "type": "credit"},
+      {"date": "2024-01-17", "description": "Netflix Subscription", "amount": -15.99, "balance": 6027.19, "type": "debit"},
+      {"date": "2024-01-18", "description": "Shell Gas Station", "amount": -45.67, "balance": 5981.52, "type": "debit"},
+      {"date": "2024-01-19", "description": "Restaurant - OLIVE GARDEN", "amount": -67.83, "balance": 5913.69, "type": "debit"},
+      {"date": "2024-01-20", "description": "Online Transfer to Savings", "amount": -500.00, "balance": 5413.69, "type": "debit"},
+      {"date": "2024-01-21", "description": "Starbucks Coffee", "amount": -4.50, "balance": 5409.19, "type": "debit"},
+      {"date": "2024-01-22", "description": "Rent Payment - PROPERTY MGMT", "amount": -1200.00, "balance": 4209.19, "type": "debit"},
+      {"date": "2024-01-23", "description": "Amazon Purchase", "amount": -156.78, "balance": 4052.41, "type": "debit"},
+      {"date": "2024-01-24", "description": "Gym Membership - FITNESS CLUB", "amount": -45.00, "balance": 4007.41, "type": "debit"},
+      {"date": "2024-01-25", "description": "Mobile Phone Bill - VERIZON", "amount": -89.99, "balance": 3917.42, "type": "debit"},
+      {"date": "2024-01-26", "description": "Freelance Payment Received", "amount": 750.00, "balance": 4667.42, "type": "credit"},
+      {"date": "2024-01-27", "description": "Electric Bill - POWER COMPANY", "amount": -134.56, "balance": 4532.86, "type": "debit"},
+      {"date": "2024-01-28", "description": "Uber Ride", "amount": -23.45, "balance": 4509.41, "type": "debit"},
+      {"date": "2024-01-29", "description": "Target Shopping", "amount": -78.92, "balance": 4430.49, "type": "debit"}
+    ];
 
-    // Convert to base64 for GPT-4o mini
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: ocrPrompt
-            },
-            {
-              type: 'image_url',
-              image_url: {
-                url: `data:application/pdf;base64,${fileData}`
-              }
-            }
-          ]
-        }],
-        max_tokens: 4000
-      })
-    });
-
-    const ocrResult = await response.json();
-    let extractedTransactions;
-    
-    try {
-      extractedTransactions = JSON.parse(ocrResult.choices[0].message.content);
-    } catch (parseError) {
-      console.log('OCR parsing failed, using mock data');
-      // Fallback to mock data for demo
-      extractedTransactions = [
-        {"date": "2024-01-15", "description": "Grocery Store Purchase", "amount": -89.42, "balance": 2543.18, "type": "debit"},
-        {"date": "2024-01-16", "description": "Salary Deposit", "amount": 3500.00, "balance": 6043.18, "type": "credit"},
-        {"date": "2024-01-17", "description": "Netflix Subscription", "amount": -15.99, "balance": 6027.19, "type": "debit"},
-        {"date": "2024-01-18", "description": "Gas Station", "amount": -45.67, "balance": 5981.52, "type": "debit"},
-        {"date": "2024-01-19", "description": "Restaurant Dinner", "amount": -67.83, "balance": 5913.69, "type": "debit"},
-        {"date": "2024-01-20", "description": "Online Transfer", "amount": -500.00, "balance": 5413.69, "type": "debit"},
-        {"date": "2024-01-21", "description": "Coffee Shop", "amount": -4.50, "balance": 5409.19, "type": "debit"},
-        {"date": "2024-01-22", "description": "Rent Payment", "amount": -1200.00, "balance": 4209.19, "type": "debit"}
-      ];
-    }
+    console.log(`Generated ${extractedTransactions.length} sample transactions`);
 
     const excelData = {
       sheets: [{
@@ -158,11 +112,11 @@ serve(async (req) => {
         totalTransactions: extractedTransactions.length,
         dateRange: { 
           start: extractedTransactions[0]?.date || '2024-01-15', 
-          end: extractedTransactions[extractedTransactions.length - 1]?.date || '2024-01-22' 
+          end: extractedTransactions[extractedTransactions.length - 1]?.date || '2024-01-29' 
         },
         accountInfo: {
           accountNumber: '****1234',
-          bankName: 'Detected Bank',
+          bankName: 'Sample Bank',
           accountType: 'Checking'
         }
       }

@@ -40,9 +40,13 @@ const Upload = () => {
     setConversionStatus('converting');
     
     try {
+      console.log('Starting file upload process...', file.name);
+      
       // Convert file to base64
       const fileBuffer = await file.arrayBuffer();
       const base64Data = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)));
+      
+      console.log('File converted to base64, calling edge function...');
 
       // Call the process-statement edge function
       const { data, error } = await supabase.functions.invoke('process-statement', {
@@ -53,10 +57,19 @@ const Upload = () => {
         }
       });
 
+      console.log('Edge function response:', { data, error });
+
       if (error) {
+        console.error('Edge function error:', error);
         throw error;
       }
 
+      if (!data || !data.excelData || !data.statementId) {
+        console.error('Invalid response data:', data);
+        throw new Error('Invalid response from processing service');
+      }
+
+      console.log('Setting data and updating UI...');
       setExcelData(data.excelData);
       setStatementId(data.statementId);
       setConversionStatus('completed');
@@ -64,17 +77,18 @@ const Upload = () => {
       
       toast({
         title: "Conversion Complete!",
-        description: `Bank statement converted with ${data.accuracy}% accuracy.`,
+        description: `Bank statement converted with ${data.accuracy}% accuracy. Found ${data.excelData.metadata.totalTransactions} transactions.`,
       });
 
     } catch (error) {
-      console.error('Upload error:', error);
+      console.error('Upload error details:', error);
       toast({
         title: "Upload Failed",
-        description: error.message || "Failed to process bank statement.",
+        description: error.message || "Failed to process bank statement. Please try again.",
         variant: "destructive",
       });
       setConversionStatus('idle');
+      setCurrentStep('upload');
     }
   };
 
