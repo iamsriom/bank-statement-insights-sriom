@@ -1,5 +1,5 @@
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
 interface OCRProcessorProps {
@@ -11,6 +11,8 @@ interface OCRProcessorProps {
 
 const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorProps) => {
   const [isProcessing, setIsProcessing] = useState(false);
+  const hasProcessed = useRef(false);
+  const processingTimeout = useRef<NodeJS.Timeout>();
 
   const convertFileToBase64 = useCallback(async (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -58,10 +60,17 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
     }
   }, [onProgress]);
 
-  const processDocument = async () => {
-    if (isProcessing) return;
+  const processDocument = useCallback(async () => {
+    if (isProcessing || hasProcessed.current) return;
     
     setIsProcessing(true);
+    hasProcessed.current = true;
+    
+    // Set timeout for processing (5 minutes)
+    processingTimeout.current = setTimeout(() => {
+      onError('Processing timeout - please try again');
+      setIsProcessing(false);
+    }, 300000); // 5 minutes
     
     try {
       onProgress(5, "Starting document processing...");
@@ -99,22 +108,41 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
       };
 
       onProgress(100, `Successfully processed ${finalData.transactions.length} transactions`);
+      
+      // Clear timeout on success
+      if (processingTimeout.current) {
+        clearTimeout(processingTimeout.current);
+      }
+      
       onProcessed(finalData);
 
     } catch (error) {
       console.error('Document processing error:', error);
+      
+      // Clear timeout on error
+      if (processingTimeout.current) {
+        clearTimeout(processingTimeout.current);
+      }
+      
       onError(`Processing failed: ${error.message}`);
     } finally {
       setIsProcessing(false);
     }
-  };
+  }, [file, convertFileToBase64, processWithAPI, onProcessed, onError, onProgress]);
 
-  // Auto-start processing when component mounts - fix infinite loop
+  // Auto-start processing when component mounts
   useEffect(() => {
-    if (!isProcessing) {
+    if (!hasProcessed.current) {
       processDocument();
     }
-  }, []); // Empty dependency array to run only once
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (processingTimeout.current) {
+        clearTimeout(processingTimeout.current);
+      }
+    };
+  }, [processDocument]);
 
   return null;
 };

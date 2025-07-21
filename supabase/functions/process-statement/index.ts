@@ -62,39 +62,17 @@ serve(async (req) => {
     let imageData: string;
 
     if (isPDF) {
-      console.log('Processing PDF file - converting to image...');
+      console.log('Processing PDF file - attempting direct processing first...');
       
-      // For PDFs, we need to convert to image since Mistral Vision API doesn't support PDFs
-      // Create a simple PDF-to-image conversion using canvas
+      // For PDFs, first try sending directly to Mistral (some text-layer PDFs work)
+      // If that fails, we'll handle it in the error case
       try {
-        // Create a temporary canvas to render PDF as image
-        const canvas = new OffscreenCanvas(2048, 2048);
-        const ctx = canvas.getContext('2d');
-        
-        // Fill with white background
-        if (ctx) {
-          ctx.fillStyle = 'white';
-          ctx.fillRect(0, 0, 2048, 2048);
-          
-          // Add some basic text rendering for PDF content
-          ctx.fillStyle = 'black';
-          ctx.font = '24px Arial';
-          ctx.fillText('PDF Content - OCR Processing', 100, 100);
-          
-          // Convert canvas to blob
-          const blob = await canvas.convertToBlob({ type: 'image/png' });
-          const arrayBuffer = await blob.arrayBuffer();
-          const uint8Array = new Uint8Array(arrayBuffer);
-          const base64Image = btoa(String.fromCharCode(...uint8Array));
-          
-          imageData = `data:image/png;base64,${base64Image}`;
-          console.log('PDF converted to PNG for processing');
-        } else {
-          throw new Error('Canvas context not available');
-        }
-      } catch (conversionError) {
-        console.error('PDF conversion failed, using original data:', conversionError);
-        // Fallback: Try sending as image anyway (some PDFs might work)
+        // Try to process PDF directly as image data
+        imageData = `data:application/pdf;base64,${fileData}`;
+        console.log('Attempting to process PDF directly with Mistral Vision API');
+      } catch (error) {
+        console.error('PDF processing preparation failed:', error);
+        // Fallback: treat as image
         imageData = `data:image/png;base64,${fileData}`;
       }
     } else {
@@ -141,41 +119,77 @@ Rules:
 
 Return ONLY the JSON array, nothing else.`;
 
-    // Call Vision API for OCR
-    const apiResponse = await fetch('https://api.mistral.ai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${mistralApiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'pixtral-12b-2409',
-        messages: [
-          {
-            role: 'user',
-            content: [
-              {
-                type: 'text',
-                text: extractionPrompt
-              },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: imageData
-                }
-              }
-            ]
-          }
-        ],
-        max_tokens: 4000,
-        temperature: 0.1
-      })
-    });
+    let apiResponse;
+    let retryCount = 0;
+    const maxRetries = 2;
 
-    if (!apiResponse.ok) {
-      const errorText = await apiResponse.text();
-      console.error('OCR API error:', apiResponse.status, errorText);
-      throw new Error(`OCR processing failed: ${apiResponse.status}`);
+    while (retryCount <= maxRetries) {
+      try {
+        console.log(`OCR attempt ${retryCount + 1}/${maxRetries + 1}`);
+        
+        // Call Vision API for OCR
+        apiResponse = await fetch('https://api.mistral.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${mistralApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'pixtral-12b-2409',
+            messages: [
+              {
+                role: 'user',
+                content: [
+                  {
+                    type: 'text',
+                    text: extractionPrompt
+                  },
+                  {
+                    type: 'image_url',
+                    image_url: {
+                      url: imageData
+                    }
+                  }
+                ]
+              }
+            ],
+            max_tokens: 4000,
+            temperature: 0.1
+          })
+        });
+
+        if (apiResponse.ok) {
+          break; // Success, exit retry loop
+        }
+
+        const errorText = await apiResponse.text();
+        console.error(`OCR API error (attempt ${retryCount + 1}):`, apiResponse.status, errorText);
+        
+        // If it's a PDF and we get a 400 error, try converting to image format
+        if (isPDF && apiResponse.status === 400 && retryCount < maxRetries) {
+          console.log('PDF direct processing failed, trying as image format...');
+          imageData = `data:image/png;base64,${fileData}`;
+          retryCount++;
+          continue;
+        }
+
+        // If all retries failed
+        if (retryCount >= maxRetries) {
+          throw new Error(`OCR processing failed after ${maxRetries + 1} attempts: ${apiResponse.status}`);
+        }
+
+        retryCount++;
+      } catch (error) {
+        console.error(`OCR processing error (attempt ${retryCount + 1}):`, error);
+        if (retryCount >= maxRetries) {
+          throw error;
+        }
+        retryCount++;
+      }
+    }
+
+    if (!apiResponse || !apiResponse.ok) {
+      throw new Error('OCR processing failed after all retries');
     }
 
     const apiResult = await apiResponse.json();
@@ -299,7 +313,7 @@ Return ONLY the JSON array, nothing else.`;
           .map(b => b.toString(16).padStart(2, '0'))
           .join('');
 
-        // Convert encrypted data to base64 string for database storage
+        // Convert encrypted data to BYTEA for database storage
         const encryptionKey = crypto.getRandomValues(new Uint8Array(32));
         const iv = crypto.getRandomValues(new Uint8Array(16));
         
@@ -317,7 +331,7 @@ Return ONLY the JSON array, nothing else.`;
           fileBuffer
         );
 
-        // Convert to BYTEA for database storage
+        // Convert to BYTEA for database storage - proper method for Deno/PostgreSQL
         const encryptedBytes = new Uint8Array(encryptedData);
 
         // Store encrypted statement in database

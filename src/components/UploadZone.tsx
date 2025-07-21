@@ -60,7 +60,6 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
     setUploadStatus('error');
     setErrorMessage(error);
     setOcrStatus('Processing failed');
-    // Don't auto-retry - let user manually retry
   }, []);
 
   const handleOCRProgress = useCallback((progress: number, status: string) => {
@@ -109,6 +108,18 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
   const text = getUploadText();
 
   const handleRetry = () => {
+    if (uploadedFile) {
+      console.log('Retrying processing with same file:', uploadedFile.name);
+      setUploadStatus('processing');
+      setOcrProgress(0);
+      setOcrStatus('Starting document processing...');
+      setErrorMessage(null);
+      // Don't reset uploadedFile - use the same file for retry
+    }
+  };
+
+  const handleNewFile = () => {
+    console.log('Resetting for new file upload');
     setUploadedFile(null);
     setUploadStatus('idle');
     setOcrProgress(0);
@@ -148,11 +159,16 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
           hasError={false}
           fileName={uploadedFile.name}
         />
+        <div className="flex justify-center">
+          <Button onClick={handleNewFile} variant="outline">
+            Process Another Statement
+          </Button>
+        </div>
       </div>
     );
   }
 
-  // Show error state with manual retry option
+  // Show error state with retry options
   if (uploadStatus === 'error' && uploadedFile) {
     return (
       <div className={cn("space-y-4", className)}>
@@ -164,18 +180,10 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
           fileName={uploadedFile.name}
         />
         <div className="flex justify-center space-x-4">
-          <Button onClick={handleRetry} variant="outline">
+          <Button onClick={handleNewFile} variant="outline">
             Try Different File
           </Button>
-          <Button 
-            onClick={() => {
-              setUploadStatus('processing');
-              setErrorMessage(null);
-              setOcrProgress(0);
-              setOcrStatus('Starting document processing...');
-            }} 
-            variant="default"
-          >
+          <Button onClick={handleRetry} variant="default">
             Retry Processing
           </Button>
         </div>
