@@ -124,21 +124,24 @@ Return ONLY the JSON array, nothing else.`;
           });
 
           if (!apiResponse.ok) {
-            const errorText = await apiResponse.text();
-            console.log(`Document OCR API error (attempt ${retryCount + 1}): ${apiResponse.status} ${errorText}`);
-            throw new Error(`Document OCR API error: ${apiResponse.status} ${errorText}`);
+            const errBody = await apiResponse.json().catch(() => null);
+            console.error('Mistral Document OCR error body:', errBody);
+            console.error(`Document OCR API error (attempt ${retryCount + 1}): ${apiResponse.status}`);
+            throw new Error(`Document OCR API error: ${apiResponse.status} - ${JSON.stringify(errBody)}`);
           }
 
           const ocrData = await apiResponse.json();
-          console.log("Document OCR response received");
+          console.log("Document OCR response received:", JSON.stringify(ocrData, null, 2));
           
           // Extract text from Mistral's document OCR response
           if (!ocrData || !ocrData.outputs || !ocrData.outputs[0] || !ocrData.outputs[0].text) {
+            console.error("Invalid OCR response structure:", ocrData);
             throw new Error("No text extracted from document OCR response");
           }
 
           const extractedText = ocrData.outputs[0].text;
-          console.log(`Successfully extracted ${extractedText.length} characters of text`);
+          console.log(`Successfully extracted ${extractedText.length} characters of text from PDF`);
+          console.log("First 500 characters:", extractedText.substring(0, 500));
           
           // Now use the extracted text with a language model to structure it
           apiResponse = await fetch('https://api.mistral.ai/v1/chat/completions', {
@@ -161,9 +164,10 @@ Return ONLY the JSON array, nothing else.`;
           });
 
           if (!apiResponse.ok) {
-            const errorText = await apiResponse.text();
-            console.log(`Structure API error: ${apiResponse.status} ${errorText}`);
-            throw new Error(`Structure API error: ${apiResponse.status} ${errorText}`);
+            const errBody = await apiResponse.json().catch(() => null);
+            console.error('Mistral Chat API error body:', errBody);
+            console.error(`Structure API error: ${apiResponse.status}`);
+            throw new Error(`Structure API error: ${apiResponse.status} - ${JSON.stringify(errBody)}`);
           }
 
           console.log('PDF processed successfully with Document OCR API');
@@ -207,9 +211,10 @@ Return ONLY the JSON array, nothing else.`;
           });
 
           if (!apiResponse.ok) {
-            const errorText = await apiResponse.text();
-            console.log(`Vision API error (attempt ${retryCount + 1}): ${apiResponse.status} ${errorText}`);
-            throw new Error(`Vision API error: ${apiResponse.status} ${errorText}`);
+            const errBody = await apiResponse.json().catch(() => null);
+            console.error('Mistral Vision API error body:', errBody);
+            console.error(`Vision API error (attempt ${retryCount + 1}): ${apiResponse.status}`);
+            throw new Error(`Vision API error: ${apiResponse.status} - ${JSON.stringify(errBody)}`);
           }
 
           console.log('Image processed successfully with Vision API');
