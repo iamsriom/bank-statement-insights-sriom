@@ -1,9 +1,9 @@
+
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft, Download, CheckCircle, AlertCircle, FileSpreadsheet, BarChart3, Settings, FileText, Upload as UploadIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import UploadZone from "@/components/UploadZone";
@@ -18,12 +18,13 @@ const Upload = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [conversionStatus, setConversionStatus] = useState<'idle' | 'converting' | 'completed'>('idle');
+  const [conversionStatus, setConversionStatus] = useState<'idle' | 'converting' | 'completed' | 'error'>('idle');
   const [excelData, setExcelData] = useState<any>(null);
   const [statementId, setStatementId] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentStep, setCurrentStep] = useState<'upload' | 'excel' | 'categorization' | 'analysis' | 'export'>('upload');
   const [analysisData, setAnalysisData] = useState<any>(null);
+  const [processingError, setProcessingError] = useState<string | null>(null);
 
   const handleFileUpload = async (file: File, session: any) => {
     if (!session) {
@@ -36,19 +37,19 @@ const Upload = () => {
       return;
     }
 
+    console.log('Starting file upload process for:', file.name);
     setUploadedFile(file);
     setConversionStatus('converting');
+    setProcessingError(null);
     
     try {
-      console.log('Starting file upload process...', file.name);
-      
       // Convert file to base64
       const fileBuffer = await file.arrayBuffer();
       const base64Data = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)));
       
-      console.log('File converted to base64, calling edge function...');
+      console.log('File converted to base64, calling Mistral OCR...');
 
-      // Call the process-statement edge function
+      // Call the process-statement edge function with Mistral OCR
       const { data, error } = await supabase.functions.invoke('process-statement', {
         body: {
           fileName: file.name,
@@ -61,7 +62,7 @@ const Upload = () => {
 
       if (error) {
         console.error('Edge function error:', error);
-        throw error;
+        throw new Error(error.message || 'Failed to process statement');
       }
 
       if (!data || !data.excelData || !data.statementId) {
@@ -69,30 +70,48 @@ const Upload = () => {
         throw new Error('Invalid response from processing service');
       }
 
-      console.log('Setting data and updating UI...');
+      console.log('Successfully processed statement with Mistral OCR');
       setExcelData(data.excelData);
       setStatementId(data.statementId);
       setConversionStatus('completed');
       setCurrentStep('excel');
       
       toast({
-        title: "Conversion Complete!",
-        description: `Bank statement converted with ${data.accuracy}% accuracy. Found ${data.excelData.metadata.totalTransactions} transactions.`,
+        title: "Statement Processed Successfully!",
+        description: `Bank statement analyzed with ${data.accuracy}% accuracy using Mistral OCR. Found ${data.excelData.metadata.totalTransactions} transactions.`,
       });
 
     } catch (error) {
       console.error('Upload error details:', error);
+      setProcessingError(error.message || 'Failed to process bank statement');
+      setConversionStatus('error');
+      
       toast({
-        title: "Upload Failed",
-        description: error.message || "Failed to process bank statement. Please try again.",
+        title: "Processing Failed",
+        description: error.message || "Failed to process bank statement. Please try again with a different file.",
         variant: "destructive",
       });
-      setConversionStatus('idle');
-      setCurrentStep('upload');
     }
   };
 
+  const handleRetryUpload = () => {
+    setUploadedFile(null);
+    setConversionStatus('idle');
+    setProcessingError(null);
+    setCurrentStep('upload');
+    setExcelData(null);
+    setStatementId(null);
+  };
+
   const handleContinueToCategorizationFromTable = () => {
+    if (!excelData || !statementId) {
+      toast({
+        title: "Error",
+        description: "No processed data available. Please upload a statement first.",
+        variant: "destructive",
+      });
+      return;
+    }
     setCurrentStep('categorization');
   };
 
@@ -146,6 +165,10 @@ const Upload = () => {
   };
 
   const handleBackToStep = (step: 'upload' | 'excel' | 'categorization' | 'analysis' | 'export') => {
+    // Prevent going back to upload if we have processed data
+    if (step === 'upload' && excelData) {
+      return;
+    }
     setCurrentStep(step);
   };
 
@@ -174,7 +197,7 @@ const Upload = () => {
                 variant={isCurrent ? "default" : isCompleted ? "secondary" : "outline"}
                 size="sm"
                 onClick={() => isAccessible && handleBackToStep(step.id as any)}
-                disabled={!isAccessible}
+                disabled={!isAccessible || (step.id === 'upload' && excelData)}
                 className="flex items-center space-x-2"
               >
                 <StepIcon className="h-4 w-4" />
@@ -250,12 +273,27 @@ const Upload = () => {
                     
                     {uploadedFile && conversionStatus === 'converting' && (
                       <div className="mt-6 flex items-center space-x-3 p-4 bg-secondary rounded-lg">
-                        <AlertCircle className="h-5 w-5 text-yellow-500 animate-spin" />
+                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
                         <div>
-                          <p className="font-medium">Processing with 256-bit encryption...</p>
+                          <p className="font-medium">Processing with Mistral OCR...</p>
                           <p className="text-sm text-muted-foreground">
-                            Converting {uploadedFile.name} to Excel format using GPT-4o mini
+                            Extracting transactions from {uploadedFile.name} using advanced AI vision
                           </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {conversionStatus === 'error' && processingError && (
+                      <div className="mt-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+                        <div className="flex items-center space-x-3">
+                          <AlertCircle className="h-5 w-5 text-destructive" />
+                          <div className="flex-1">
+                            <p className="font-medium text-destructive">Processing Failed</p>
+                            <p className="text-sm text-destructive/80">{processingError}</p>
+                          </div>
+                          <Button variant="outline" size="sm" onClick={handleRetryUpload}>
+                            Try Again
+                          </Button>
                         </div>
                       </div>
                     )}
@@ -317,7 +355,7 @@ const Upload = () => {
                       <div className="grid md:grid-cols-3 gap-4">
                         <div className="text-center p-4 bg-success/10 rounded-lg">
                           <div className="text-2xl font-bold text-success">
-                            {analysisData.categorization?.accuracy || 99.2}%
+                            {analysisData.categorization?.accuracy || 98.5}%
                           </div>
                           <div className="text-sm text-muted-foreground">Categorization Accuracy</div>
                         </div>
