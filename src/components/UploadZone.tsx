@@ -5,24 +5,33 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Upload, FileText, Check, Camera, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import OCRProcessor from "./OCRProcessor";
+import OCRProgressIndicator from "./OCRProgressIndicator";
 
 interface UploadZoneProps {
   onFileUpload?: (file: File) => void;
+  onProcessedData?: (processedData: any) => void;
   className?: string;
 }
 
-const UploadZone = ({ onFileUpload, className }: UploadZoneProps) => {
-  const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
+const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProps) => {
+  const [uploadStatus, setUploadStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const [ocrStatus, setOcrStatus] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
     if (file) {
       console.log('File dropped:', file.name, file.type, file.size);
       setUploadedFile(file);
-      setUploadStatus('uploading');
+      setUploadStatus('processing');
+      setOcrProgress(0);
+      setOcrStatus('Starting OCR processing...');
+      setErrorMessage(null);
       
-      // Call the parent component's upload handler immediately
+      // Call the parent component's upload handler
       onFileUpload?.(file);
     }
   }, [onFileUpload]);
@@ -37,9 +46,29 @@ const UploadZone = ({ onFileUpload, className }: UploadZoneProps) => {
     maxSize: 10 * 1024 * 1024, // 10MB
   });
 
+  const handleOCRProcessed = useCallback((processedData: any) => {
+    console.log('OCR processing completed:', processedData);
+    setUploadStatus('success');
+    setOcrProgress(100);
+    setOcrStatus(`Successfully extracted ${processedData.transactions.length} transactions`);
+    onProcessedData?.(processedData);
+  }, [onProcessedData]);
+
+  const handleOCRError = useCallback((error: string) => {
+    console.error('OCR processing failed:', error);
+    setUploadStatus('error');
+    setErrorMessage(error);
+    setOcrStatus('Processing failed');
+  }, []);
+
+  const handleOCRProgress = useCallback((progress: number, status: string) => {
+    setOcrProgress(progress);
+    setOcrStatus(status);
+  }, []);
+
   const getUploadIcon = () => {
     switch (uploadStatus) {
-      case 'uploading':
+      case 'processing':
         return <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />;
       case 'success':
         return <Check className="h-12 w-12 text-success" />;
@@ -52,10 +81,10 @@ const UploadZone = ({ onFileUpload, className }: UploadZoneProps) => {
 
   const getUploadText = () => {
     switch (uploadStatus) {
-      case 'uploading':
+      case 'processing':
         return {
           main: "Processing your statement...",
-          sub: "Using Mistral AI to extract transaction data"
+          sub: "Using Microsoft TrOCR AI to extract transaction data"
         };
       case 'success':
         return {
@@ -65,7 +94,7 @@ const UploadZone = ({ onFileUpload, className }: UploadZoneProps) => {
       case 'error':
         return {
           main: "Upload failed",
-          sub: "Please try again or choose a different file"
+          sub: errorMessage || "Please try again or choose a different file"
         };
       default:
         return {
@@ -77,6 +106,70 @@ const UploadZone = ({ onFileUpload, className }: UploadZoneProps) => {
 
   const text = getUploadText();
 
+  const handleRetry = () => {
+    setUploadedFile(null);
+    setUploadStatus('idle');
+    setOcrProgress(0);
+    setOcrStatus('');
+    setErrorMessage(null);
+  };
+
+  // Show OCR progress when processing
+  if (uploadStatus === 'processing' && uploadedFile) {
+    return (
+      <div className={cn("space-y-4", className)}>
+        <OCRProgressIndicator
+          progress={ocrProgress}
+          status={ocrStatus}
+          isComplete={false}
+          hasError={false}
+          fileName={uploadedFile.name}
+        />
+        <OCRProcessor
+          file={uploadedFile}
+          onProcessed={handleOCRProcessed}
+          onError={handleOCRError}
+          onProgress={handleOCRProgress}
+        />
+      </div>
+    );
+  }
+
+  // Show success state
+  if (uploadStatus === 'success' && uploadedFile) {
+    return (
+      <div className={cn("space-y-4", className)}>
+        <OCRProgressIndicator
+          progress={100}
+          status={ocrStatus}
+          isComplete={true}
+          hasError={false}
+          fileName={uploadedFile.name}
+        />
+      </div>
+    );
+  }
+
+  // Show error state
+  if (uploadStatus === 'error' && uploadedFile) {
+    return (
+      <div className={cn("space-y-4", className)}>
+        <OCRProgressIndicator
+          progress={ocrProgress}
+          status={errorMessage || 'Processing failed'}
+          isComplete={false}
+          hasError={true}
+          fileName={uploadedFile.name}
+        />
+        <div className="flex justify-center">
+          <Button onClick={handleRetry} variant="outline">
+            Try Again
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Card 
       {...getRootProps()} 
@@ -84,9 +177,6 @@ const UploadZone = ({ onFileUpload, className }: UploadZoneProps) => {
         "relative overflow-hidden border-2 border-dashed cursor-pointer transition-all duration-300",
         isDragActive && !isDragReject && "border-primary bg-primary/5 scale-102",
         isDragReject && "border-destructive bg-destructive/5",
-        uploadStatus === 'success' && "border-success bg-success/5",
-        uploadStatus === 'error' && "border-destructive bg-destructive/5",
-        uploadStatus === 'uploading' && "border-primary bg-primary/5",
         className
       )}
     >
@@ -102,46 +192,30 @@ const UploadZone = ({ onFileUpload, className }: UploadZoneProps) => {
           <p className="text-muted-foreground">{text.sub}</p>
         </div>
 
-        {uploadStatus === 'idle' && (
-          <div className="space-y-4">
-            <Button variant="outline" size="lg" className="mx-auto">
-              <FileText className="h-4 w-4 mr-2" />
-              Browse Files
-            </Button>
-            
-            <div className="flex items-center justify-center space-x-4 text-muted-foreground">
-              <div className="flex items-center space-x-2">
-                <Camera className="h-4 w-4" />
-                <span className="text-sm">Mobile: Take Photo</span>
-              </div>
+        <div className="space-y-4">
+          <Button variant="outline" size="lg" className="mx-auto">
+            <FileText className="h-4 w-4 mr-2" />
+            Browse Files
+          </Button>
+          
+          <div className="flex items-center justify-center space-x-4 text-muted-foreground">
+            <div className="flex items-center space-x-2">
+              <Camera className="h-4 w-4" />
+              <span className="text-sm">Mobile: Take Photo</span>
             </div>
           </div>
-        )}
-
-        {uploadStatus === 'error' && (
-          <Button 
-            variant="outline" 
-            size="lg" 
-            onClick={(e) => {
-              e.stopPropagation();
-              setUploadStatus('idle');
-              setUploadedFile(null);
-            }}
-          >
-            Try Again
-          </Button>
-        )}
+        </div>
       </div>
 
       {/* Security badges */}
       <div className="absolute bottom-4 left-4 right-4 flex justify-center space-x-4 text-xs text-muted-foreground">
         <div className="flex items-center space-x-1">
           <div className="w-2 h-2 bg-success rounded-full" />
-          <span>Bank-level encryption</span>
+          <span>Client-side AI processing</span>
         </div>
         <div className="flex items-center space-x-1">
           <div className="w-2 h-2 bg-success rounded-full" />
-          <span>Secure processing</span>
+          <span>Microsoft TrOCR</span>
         </div>
       </div>
     </Card>

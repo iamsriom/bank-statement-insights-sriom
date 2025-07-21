@@ -1,9 +1,10 @@
+
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Download, CheckCircle, AlertCircle, FileSpreadsheet, BarChart3, Settings, FileText, Upload as UploadIcon } from "lucide-react";
+import { ArrowLeft, Download, CheckCircle, FileSpreadsheet, BarChart3, Settings, FileText, Upload as UploadIcon } from "lucide-react";
 import { Link } from "react-router-dom";
 import UploadZone from "@/components/UploadZone";
 import ExcelDataTable from "@/components/ExcelDataTable";
@@ -17,110 +18,114 @@ const Upload = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [conversionStatus, setConversionStatus] = useState<'idle' | 'converting' | 'completed' | 'error'>('idle');
+  const [processedData, setProcessedData] = useState<any>(null);
   const [excelData, setExcelData] = useState<any>(null);
   const [statementId, setStatementId] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentStep, setCurrentStep] = useState<'upload' | 'excel' | 'categorization' | 'analysis' | 'export'>('upload');
   const [analysisData, setAnalysisData] = useState<any>(null);
-  const [processingError, setProcessingError] = useState<string | null>(null);
+  const [isStoringData, setIsStoringData] = useState(false);
 
-  const handleFileUpload = async (file: File, session: any) => {
+  const handleFileUpload = (file: File) => {
+    console.log('File uploaded:', file.name);
+    setUploadedFile(file);
+  };
+
+  const handleProcessedData = async (data: any, session: any) => {
     if (!session) {
       toast({
         title: "Authentication Required",
-        description: "Please sign in to upload bank statements.",
+        description: "Please sign in to process bank statements.",
         variant: "destructive",
       });
       navigate('/auth');
       return;
     }
 
-    console.log('Starting file upload process for:', file.name);
-    setUploadedFile(file);
-    setConversionStatus('converting');
-    setProcessingError(null);
-    
+    console.log('Processed data received:', data);
+    setProcessedData(data);
+    setIsStoringData(true);
+
     try {
-      // Convert file to base64
-      const fileBuffer = await file.arrayBuffer();
-      const base64Data = btoa(String.fromCharCode(...new Uint8Array(fileBuffer)));
-      
-      console.log('File converted to base64, calling Mistral OCR...');
-      console.log('File size:', file.size, 'bytes');
-      console.log('File type:', file.type);
-
-      // Call the process-statement edge function with enhanced error handling
-      const { data, error } = await supabase.functions.invoke('process-statement', {
-        body: {
-          fileName: file.name,
-          fileData: base64Data,
-          fileSize: file.size
-        }
-      });
-
-      console.log('Edge function response:', { data, error });
+      // Store the processed data in the database
+      const { data: statement, error } = await supabase
+        .from('bank_statements')
+        .insert({
+          user_id: session.user.id,
+          filename: data.originalFile.name,
+          original_file_hash: 'browser_processed_' + Date.now(),
+          file_size: data.originalFile.size,
+          processing_status: 'completed',
+          excel_data: {
+            sheets: [{
+              name: 'Transactions',
+              headers: ['Date', 'Description', 'Amount', 'Balance', 'Type', 'Category', 'Notes'],
+              data: data.transactions.map((t: any) => [
+                t.date, 
+                t.description, 
+                t.amount, 
+                t.balance || 0, 
+                t.type,
+                '', // Category will be filled during analysis
+                '' // Notes for user
+              ])
+            }],
+            metadata: data.metadata
+          },
+          total_transactions: data.metadata.totalTransactions,
+          date_range_start: data.metadata.dateRange.start,
+          date_range_end: data.metadata.dateRange.end,
+          account_info: data.metadata.accountInfo,
+          encrypted_file_data: new Uint8Array(), // Empty since we processed client-side
+        })
+        .select()
+        .single();
 
       if (error) {
-        console.error('Edge function error:', error);
-        setProcessingError(error.message || 'Failed to process statement');
-        setConversionStatus('error');
-        
-        toast({
-          title: "Processing Failed",
-          description: error.message || "Failed to process bank statement. Please try again.",
-          variant: "destructive",
-        });
-        return;
+        throw error;
       }
 
-      if (!data || !data.success || !data.excelData || !data.statementId) {
-        console.error('Invalid response data:', data);
-        const errorMsg = data?.details || 'Invalid response from processing service';
-        setProcessingError(errorMsg);
-        setConversionStatus('error');
-        
-        toast({
-          title: "Processing Failed",
-          description: errorMsg,
-          variant: "destructive",
-        });
-        return;
-      }
-
-      console.log('Successfully processed statement with Mistral OCR');
-      console.log('Extracted transactions:', data.excelData.metadata.totalTransactions);
-      
-      setExcelData(data.excelData);
-      setStatementId(data.statementId);
-      setConversionStatus('completed');
+      console.log('Statement stored successfully:', statement.id);
+      setStatementId(statement.id);
+      setExcelData({
+        sheets: [{
+          name: 'Transactions',
+          headers: ['Date', 'Description', 'Amount', 'Balance', 'Type', 'Category', 'Notes'],
+          data: data.transactions.map((t: any) => [
+            t.date, 
+            t.description, 
+            t.amount, 
+            t.balance || 0, 
+            t.type,
+            '', 
+            ''
+          ])
+        }],
+        metadata: data.metadata
+      });
       setCurrentStep('excel');
-      setProcessingError(null); // Clear any previous errors
-      
+
       toast({
         title: "Statement Processed Successfully!",
-        description: `Bank statement analyzed with ${data.accuracy}% accuracy using Mistral OCR. Found ${data.excelData.metadata.totalTransactions} transactions.`,
+        description: `Bank statement analyzed with TrOCR AI. Found ${data.metadata.totalTransactions} transactions.`,
       });
 
     } catch (error) {
-      console.error('Upload error details:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-      setProcessingError(errorMessage);
-      setConversionStatus('error');
-      
+      console.error('Database storage error:', error);
       toast({
-        title: "Processing Failed",
-        description: errorMessage,
+        title: "Storage Failed",
+        description: "Failed to save processed data. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setIsStoringData(false);
     }
   };
 
   const handleRetryUpload = () => {
     console.log('Retrying upload process...');
     setUploadedFile(null);
-    setConversionStatus('idle');
-    setProcessingError(null);
+    setProcessedData(null);
     setCurrentStep('upload');
     setExcelData(null);
     setStatementId(null);
@@ -298,31 +303,19 @@ const Upload = () => {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <UploadZone onFileUpload={(file) => handleFileUpload(file, session)} />
+                    <UploadZone 
+                      onFileUpload={handleFileUpload}
+                      onProcessedData={(data) => handleProcessedData(data, session)}
+                    />
                     
-                    {uploadedFile && conversionStatus === 'converting' && (
+                    {isStoringData && (
                       <div className="mt-6 flex items-center space-x-3 p-4 bg-secondary rounded-lg">
                         <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
                         <div>
-                          <p className="font-medium">Processing with Mistral OCR...</p>
+                          <p className="font-medium">Saving processed data...</p>
                           <p className="text-sm text-muted-foreground">
-                            Extracting transactions from {uploadedFile.name} using advanced AI vision
+                            Storing your transaction data securely
                           </p>
-                        </div>
-                      </div>
-                    )}
-
-                    {conversionStatus === 'error' && processingError && (
-                      <div className="mt-6 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
-                        <div className="flex items-center space-x-3">
-                          <AlertCircle className="h-5 w-5 text-destructive" />
-                          <div className="flex-1">
-                            <p className="font-medium text-destructive">Processing Failed</p>
-                            <p className="text-sm text-destructive/80">{processingError}</p>
-                          </div>
-                          <Button variant="outline" size="sm" onClick={handleRetryUpload}>
-                            Try Again
-                          </Button>
                         </div>
                       </div>
                     )}

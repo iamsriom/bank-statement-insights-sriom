@@ -6,7 +6,15 @@ import { ArrowRight, Shield, Zap, TrendingUp } from "lucide-react";
 const HeroSection = () => {
   const handleFileUpload = (file: File) => {
     console.log("File uploaded:", file.name);
-    // Handle file upload logic here
+    // Handle file upload logic here - could redirect to upload page
+    window.location.href = '/upload';
+  };
+
+  const handleProcessedData = (data: any) => {
+    console.log("Data processed on homepage:", data);
+    // Could store in session/localStorage and redirect to results
+    sessionStorage.setItem('processedData', JSON.stringify(data));
+    window.location.href = '/upload';
   };
 
   return (
@@ -36,22 +44,25 @@ const HeroSection = () => {
           <div className="flex flex-wrap justify-center gap-4 text-sm">
             <div className="flex items-center space-x-2 text-muted-foreground">
               <Shield className="h-4 w-4 text-success" />
-              <span>Bank-level encryption</span>
+              <span>Client-side processing</span>
             </div>
             <div className="flex items-center space-x-2 text-muted-foreground">
               <TrendingUp className="h-4 w-4 text-success" />
-              <span>Instant insights</span>
+              <span>Microsoft TrOCR</span>
             </div>
             <div className="flex items-center space-x-2 text-muted-foreground">
               <Zap className="h-4 w-4 text-success" />
-              <span>No data stored</span>
+              <span>No server upload</span>
             </div>
           </div>
         </div>
 
         {/* Upload Zone */}
         <div className="max-w-2xl mx-auto mb-8">
-          <UploadZone onFileUpload={handleFileUpload} />
+          <UploadZone 
+            onFileUpload={handleFileUpload}
+            onProcessedData={handleProcessedData}
+          />
         </div>
 
         {/* CTA */}
@@ -69,20 +80,20 @@ const HeroSection = () => {
         {/* Trust indicators */}
         <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-8 opacity-60">
           <div className="text-center">
-            <div className="text-2xl font-bold text-foreground">256-bit</div>
-            <div className="text-sm text-muted-foreground">Encryption</div>
+            <div className="text-2xl font-bold text-foreground">Client-side</div>
+            <div className="text-sm text-muted-foreground">Processing</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-foreground">0 Data</div>
-            <div className="text-sm text-muted-foreground">Stored</div>
+            <div className="text-2xl font-bold text-foreground">0 Upload</div>
+            <div className="text-sm text-muted-foreground">To Server</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-foreground">&lt; 30s</div>
             <div className="text-sm text-muted-foreground">Processing</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-foreground">99.9%</div>
-            <div className="text-sm text-muted-foreground">Accuracy</div>
+            <div className="text-2xl font-bold text-foreground">95%+</div>
+            <div className="text-sm text-muted-foreground">TrOCR Accuracy</div>
           </div>
         </div>
       </div>
