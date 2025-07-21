@@ -1,3 +1,4 @@
+
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import UploadZone from "./UploadZone";
@@ -6,13 +7,13 @@ import { ArrowRight, Shield, Zap, TrendingUp } from "lucide-react";
 const HeroSection = () => {
   const handleFileUpload = (file: File) => {
     console.log("File uploaded:", file.name);
-    // Handle file upload logic here - could redirect to upload page
+    // Redirect to upload page
     window.location.href = '/upload';
   };
 
   const handleProcessedData = (data: any) => {
     console.log("Data processed on homepage:", data);
-    // Could store in session/localStorage and redirect to results
+    // Store in session storage and redirect to upload page
     sessionStorage.setItem('processedData', JSON.stringify(data));
     window.location.href = '/upload';
   };
@@ -37,7 +38,7 @@ const HeroSection = () => {
           
           <p className="text-xl text-muted-foreground max-w-3xl mx-auto leading-relaxed">
             Upload your bank statement and get instant analysis, spending insights, 
-            tax deductions, and subscription tracking. No signup required.
+            tax deductions, and subscription tracking. Works without signup.
           </p>
 
           {/* Feature highlights */}
@@ -48,7 +49,7 @@ const HeroSection = () => {
             </div>
             <div className="flex items-center space-x-2 text-muted-foreground">
               <TrendingUp className="h-4 w-4 text-success" />
-              <span>Microsoft TrOCR</span>
+              <span>AI text extraction</span>
             </div>
             <div className="flex items-center space-x-2 text-muted-foreground">
               <Zap className="h-4 w-4 text-success" />
@@ -72,7 +73,7 @@ const HeroSection = () => {
           </p>
           
           <Button variant="outline" size="lg" className="group" onClick={() => window.location.href = '/auth?mode=signup'}>
-            Get Started for Free
+            Sign up for Advanced Features
             <ArrowRight className="h-4 w-4 group-hover:translate-x-1 transition-transform" />
           </Button>
         </div>
@@ -93,7 +94,7 @@ const HeroSection = () => {
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-foreground">95%+</div>
-            <div className="text-sm text-muted-foreground">TrOCR Accuracy</div>
+            <div className="text-sm text-muted-foreground">Accuracy</div>
           </div>
         </div>
       </div>

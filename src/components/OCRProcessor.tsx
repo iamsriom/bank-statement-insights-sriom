@@ -24,37 +24,62 @@ interface Transaction {
 const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorProps) => {
   const [ocrPipeline, setOcrPipeline] = useState<Pipeline | null>(null);
 
+  const extractTextFromPDF = useCallback(async (file: File): Promise<string> => {
+    try {
+      const fileArrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: fileArrayBuffer }).promise;
+      let fullText = '';
+
+      onProgress(30, "Extracting text from PDF...");
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items
+          .map((item: any) => item.str)
+          .join(' ');
+        fullText += pageText + '\n';
+        
+        onProgress(30 + (pageNum / pdf.numPages) * 40, `Extracting text from page ${pageNum}/${pdf.numPages}`);
+      }
+
+      return fullText;
+    } catch (error) {
+      console.error('PDF text extraction failed:', error);
+      throw new Error('Failed to extract text from PDF');
+    }
+  }, [onProgress]);
+
   const initializeOCR = useCallback(async () => {
     try {
-      onProgress(10, "Loading TrOCR model...");
+      onProgress(10, "Loading OCR model...");
       
-      // Initialize Microsoft TrOCR for printed text
+      // Try a more reliable OCR model
       const pipeline_instance = await pipeline(
         'image-to-text',
-        'microsoft/trocr-base-printed',
-        { device: 'webgpu' }
+        'Xenova/trocr-base-handwritten',
+        { device: 'cpu' } // Use CPU to avoid GPU compatibility issues
       );
       
       setOcrPipeline(pipeline_instance);
-      onProgress(30, "OCR model loaded successfully");
+      onProgress(25, "OCR model loaded successfully");
       return pipeline_instance;
     } catch (error) {
       console.error('Failed to load OCR model:', error);
-      onError(`Failed to load OCR model: ${error.message}`);
-      return null;
+      throw new Error(`Failed to load OCR model: ${error.message}`);
     }
-  }, [onProgress, onError]);
+  }, [onProgress]);
 
   const convertPDFToImages = useCallback(async (file: File): Promise<string[]> => {
     const fileArrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: fileArrayBuffer }).promise;
     const images: string[] = [];
 
-    onProgress(40, `Converting PDF pages to images...`);
+    onProgress(70, `Converting PDF pages to images...`);
 
     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
       const page = await pdf.getPage(pageNum);
-      const scale = 2.0; // Higher scale for better OCR accuracy
+      const scale = 2.0;
       const viewport = page.getViewport({ scale });
 
       const canvas = document.createElement('canvas');
@@ -68,7 +93,7 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
       }).promise;
 
       images.push(canvas.toDataURL('image/png'));
-      onProgress(40 + (pageNum / pdf.numPages) * 20, `Converted page ${pageNum}/${pdf.numPages}`);
+      onProgress(70 + (pageNum / pdf.numPages) * 15, `Converted page ${pageNum}/${pdf.numPages}`);
     }
 
     return images;
@@ -76,7 +101,6 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
 
   const processImageOCR = useCallback(async (imageDataUrl: string, pipeline: Pipeline): Promise<string> => {
     try {
-      // Convert data URL to image element
       const img = new Image();
       img.src = imageDataUrl;
       
@@ -84,7 +108,6 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
         img.onload = resolve;
       });
 
-      // Perform OCR
       const result = await pipeline(img);
       return Array.isArray(result) ? result[0]?.generated_text || '' : result.generated_text || '';
     } catch (error) {
@@ -93,8 +116,8 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
     }
   }, []);
 
-  const parseTransactions = useCallback((ocrText: string): Transaction[] => {
-    const lines = ocrText.split('\n').filter(line => line.trim());
+  const parseTransactions = useCallback((text: string): Transaction[] => {
+    const lines = text.split('\n').filter(line => line.trim());
     const transactions: Transaction[] = [];
 
     // Enhanced regex patterns for transaction parsing
@@ -107,21 +130,16 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
 
     for (const pattern of transactionPatterns) {
       let match;
-      while ((match = pattern.exec(ocrText)) !== null) {
+      while ((match = pattern.exec(text)) !== null) {
         const [, dateStr, description, amountStr, balanceStr] = match;
         
-        // Parse date
         const date = parseDate(dateStr);
         if (!date) continue;
 
-        // Parse amount
         const amount = parseAmount(amountStr);
         if (isNaN(amount)) continue;
 
-        // Parse balance if available
         const balance = balanceStr ? parseAmount(balanceStr) : undefined;
-
-        // Clean description
         const cleanDescription = description.trim().replace(/\s+/g, ' ');
         if (cleanDescription.length < 3) continue;
 
@@ -140,9 +158,9 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
 
   const parseDate = (dateStr: string): Date | null => {
     const formats = [
-      /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/,  // DD/MM/YYYY or MM/DD/YYYY
-      /(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/,  // YYYY-MM-DD
-      /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})/,  // DD/MM/YY or MM/DD/YY
+      /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/,
+      /(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/,
+      /(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2})/,
     ];
 
     for (const format of formats) {
@@ -150,11 +168,10 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
       if (match) {
         const [, part1, part2, part3] = match;
         
-        // Try different date interpretations
         const dates = [
-          new Date(parseInt(part1), parseInt(part2) - 1, parseInt(part3)), // YYYY-MM-DD
-          new Date(parseInt(part3), parseInt(part1) - 1, parseInt(part2)), // DD/MM/YYYY
-          new Date(parseInt(part3), parseInt(part2) - 1, parseInt(part1)), // MM/DD/YYYY
+          new Date(parseInt(part1), parseInt(part2) - 1, parseInt(part3)),
+          new Date(parseInt(part3), parseInt(part1) - 1, parseInt(part2)),
+          new Date(parseInt(part3), parseInt(part2) - 1, parseInt(part1)),
         ];
 
         for (const date of dates) {
@@ -169,10 +186,8 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
   };
 
   const parseAmount = (amountStr: string): number => {
-    // Remove currency symbols and clean the string
     const cleaned = amountStr.replace(/[\$£€,\s]/g, '');
     
-    // Handle negative signs and parentheses
     let multiplier = 1;
     if (cleaned.startsWith('-') || cleaned.startsWith('(')) {
       multiplier = -1;
@@ -186,43 +201,53 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
 
   const processDocument = useCallback(async () => {
     try {
-      onProgress(5, "Initializing OCR...");
+      onProgress(5, "Starting document processing...");
       
-      const pipeline = await initializeOCR();
-      if (!pipeline) return;
-
-      let images: string[] = [];
+      let extractedText = '';
 
       if (file.type === 'application/pdf') {
-        images = await convertPDFToImages(file);
+        try {
+          // First, try to extract text directly from PDF
+          extractedText = await extractTextFromPDF(file);
+          onProgress(70, "Text extracted from PDF successfully");
+        } catch (error) {
+          console.log('PDF text extraction failed, falling back to OCR');
+          // If text extraction fails, use OCR
+          const pipeline = await initializeOCR();
+          if (!pipeline) return;
+
+          const images = await convertPDFToImages(file);
+          onProgress(85, "Performing OCR on document pages...");
+          
+          for (let i = 0; i < images.length; i++) {
+            const pageText = await processImageOCR(images[i], pipeline);
+            extractedText += pageText + '\n';
+            onProgress(85 + (i / images.length) * 10, `Processing page ${i + 1}/${images.length}`);
+          }
+        }
       } else {
-        // Handle image files directly
+        // Handle image files with OCR
+        const pipeline = await initializeOCR();
+        if (!pipeline) return;
+
         const reader = new FileReader();
         const imageDataUrl = await new Promise<string>((resolve) => {
           reader.onload = (e) => resolve(e.target?.result as string);
           reader.readAsDataURL(file);
         });
-        images = [imageDataUrl];
-        onProgress(60, "Image loaded for OCR processing");
+        
+        onProgress(70, "Processing image with OCR...");
+        extractedText = await processImageOCR(imageDataUrl, pipeline);
       }
 
-      if (images.length === 0) {
-        onError("No valid images found in the document");
+      if (!extractedText.trim()) {
+        onError("No text could be extracted from the document. Please ensure it contains readable text or transactions.");
         return;
       }
 
-      onProgress(70, "Performing OCR on document pages...");
+      onProgress(95, "Parsing transactions from extracted text...");
       
-      let allOcrText = '';
-      for (let i = 0; i < images.length; i++) {
-        const pageText = await processImageOCR(images[i], pipeline);
-        allOcrText += pageText + '\n';
-        onProgress(70 + (i / images.length) * 20, `Processing page ${i + 1}/${images.length}`);
-      }
-
-      onProgress(90, "Parsing transactions from OCR text...");
-      
-      const transactions = parseTransactions(allOcrText);
+      const transactions = parseTransactions(extractedText);
       
       if (transactions.length === 0) {
         onError("No transactions found in the document. Please ensure the document contains a valid bank statement.");
@@ -231,7 +256,6 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
 
       onProgress(100, `Successfully extracted ${transactions.length} transactions`);
       
-      // Format data for the backend
       const processedData = {
         transactions,
         metadata: {
@@ -259,14 +283,14 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
       console.error('Document processing error:', error);
       onError(`Processing failed: ${error.message}`);
     }
-  }, [file, initializeOCR, convertPDFToImages, processImageOCR, parseTransactions, onProcessed, onError, onProgress]);
+  }, [file, extractTextFromPDF, initializeOCR, convertPDFToImages, processImageOCR, parseTransactions, onProcessed, onError, onProgress]);
 
   // Auto-start processing when component mounts
-  useState(() => {
+  useEffect(() => {
     processDocument();
-  });
+  }, [processDocument]);
 
-  return null; // This component doesn't render anything
+  return null;
 };
 
 export default OCRProcessor;

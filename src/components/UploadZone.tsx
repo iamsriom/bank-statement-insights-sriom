@@ -28,7 +28,7 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
       setUploadedFile(file);
       setUploadStatus('processing');
       setOcrProgress(0);
-      setOcrStatus('Starting OCR processing...');
+      setOcrStatus('Starting document processing...');
       setErrorMessage(null);
       
       // Call the parent component's upload handler
@@ -47,7 +47,7 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
   });
 
   const handleOCRProcessed = useCallback((processedData: any) => {
-    console.log('OCR processing completed:', processedData);
+    console.log('Document processing completed:', processedData);
     setUploadStatus('success');
     setOcrProgress(100);
     setOcrStatus(`Successfully extracted ${processedData.transactions.length} transactions`);
@@ -55,7 +55,7 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
   }, [onProcessedData]);
 
   const handleOCRError = useCallback((error: string) => {
-    console.error('OCR processing failed:', error);
+    console.error('Document processing failed:', error);
     setUploadStatus('error');
     setErrorMessage(error);
     setOcrStatus('Processing failed');
@@ -84,16 +84,16 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
       case 'processing':
         return {
           main: "Processing your statement...",
-          sub: "Using Microsoft TrOCR AI to extract transaction data"
+          sub: "Using AI to extract transaction data from your document"
         };
       case 'success':
         return {
-          main: "Statement uploaded successfully!",
+          main: "Statement processed successfully!",
           sub: `${uploadedFile?.name} • ${((uploadedFile?.size || 0) / 1024 / 1024).toFixed(1)} MB`
         };
       case 'error':
         return {
-          main: "Upload failed",
+          main: "Processing failed",
           sub: errorMessage || "Please try again or choose a different file"
         };
       default:
@@ -114,7 +114,7 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
     setErrorMessage(null);
   };
 
-  // Show OCR progress when processing
+  // Show processing progress when processing
   if (uploadStatus === 'processing' && uploadedFile) {
     return (
       <div className={cn("space-y-4", className)}>
@@ -211,11 +211,11 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
       <div className="absolute bottom-4 left-4 right-4 flex justify-center space-x-4 text-xs text-muted-foreground">
         <div className="flex items-center space-x-1">
           <div className="w-2 h-2 bg-success rounded-full" />
-          <span>Client-side AI processing</span>
+          <span>Client-side processing</span>
         </div>
         <div className="flex items-center space-x-1">
           <div className="w-2 h-2 bg-success rounded-full" />
-          <span>Microsoft TrOCR</span>
+          <span>No server upload</span>
         </div>
       </div>
     </Card>
