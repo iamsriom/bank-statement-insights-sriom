@@ -95,7 +95,7 @@ serve(async (req) => {
     }
 
     // Get Mistral API key from secrets
-    const mistralApiKey = Deno.env.get('Mistral_API');
+    const mistralApiKey = Deno.env.get('MISTRAL_API_KEY');
     if (!mistralApiKey) {
       console.error('Mistral API key not found in environment');
       throw new Error('OCR service not configured');
