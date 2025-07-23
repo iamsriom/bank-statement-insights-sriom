@@ -118,18 +118,31 @@ serve(async (req) => {
       try {
         console.log(`Mistral Document OCR attempt ${retryCount + 1}/${maxRetries}`);
         
-        const ocrResponse = await fetch('https://api.mistral.ai/v1/document/ocr', {
+        const ocrResponse = await fetch('https://api.mistral.ai/v1/chat/completions', {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${mistralApiKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            inputs: [{
-              document: {
-                b64: fileData
-              }
-            }]
+            model: 'mistral-ocr-2505',
+            messages: [{
+              role: 'user',
+              content: [
+                {
+                  type: 'text',
+                  text: 'Extract all text from this bank statement document. Return only the extracted text, no additional commentary.'
+                },
+                {
+                  type: 'image_url',
+                  image_url: {
+                    url: `data:${isPDF ? 'application/pdf' : 'image/jpeg'};base64,${fileData}`
+                  }
+                }
+              ]
+            }],
+            temperature: 0.1,
+            max_tokens: 4000
           }),
         });
 
@@ -156,8 +169,8 @@ serve(async (req) => {
         console.log('Mistral OCR response received successfully');
         
         // Extract text from OCR response
-        if (ocrResult.outputs && ocrResult.outputs[0] && ocrResult.outputs[0].text) {
-          extractedText = ocrResult.outputs[0].text;
+        if (ocrResult.choices && ocrResult.choices[0] && ocrResult.choices[0].message && ocrResult.choices[0].message.content) {
+          extractedText = ocrResult.choices[0].message.content;
           console.log(`OCR extracted text length: ${extractedText.length}`);
           console.log('First 500 characters:', extractedText.substring(0, 500));
           break; // Success, exit retry loop
