@@ -3,7 +3,7 @@ import { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Upload, FileText, Check, Camera, AlertCircle } from "lucide-react";
+import { Upload, FileText, Check, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import OCRProcessor from "./OCRProcessor";
 import OCRProgressIndicator from "./OCRProgressIndicator";
@@ -22,9 +22,10 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    const file = acceptedFiles[0];
-    if (file) {
-      console.log('File dropped:', file.name, file.type, file.size);
+    if (acceptedFiles.length > 0) {
+      console.log('Files dropped:', acceptedFiles.map(f => `${f.name} (${f.type})`));
+      // For now, process the first file (can be enhanced for multiple later)
+      const file = acceptedFiles[0];
       setUploadedFile(file);
       setUploadStatus('processing');
       setOcrProgress(0);
@@ -39,10 +40,9 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
   const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
     onDrop,
     accept: {
-      'application/pdf': ['.pdf'],
-      'image/*': ['.png', '.jpg', '.jpeg']
+      'application/pdf': ['.pdf']
     },
-    maxFiles: 1,
+    multiple: true,
     maxSize: 10 * 1024 * 1024, // 10MB
     disabled: uploadStatus === 'processing', // Prevent new uploads while processing
   });
@@ -97,11 +97,11 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
           main: "Processing failed",
           sub: errorMessage || "Please try again or choose a different file"
         };
-      default:
-        return {
-          main: isDragActive ? "Drop your statement here" : "Drag & drop your bank statement",
-          sub: "Supports PDF, PNG, JPG files up to 10MB"
-        };
+        default:
+          return {
+            main: isDragActive ? "Drop your PDF statements here" : "Drag & drop your PDF bank statements",
+            sub: "Supports PDF files up to 10MB • Multiple files supported"
+          };
     }
   };
 
@@ -218,15 +218,8 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
           <div className="space-y-4">
             <Button variant="outline" size="lg" className="mx-auto">
               <FileText className="h-4 w-4 mr-2" />
-              Browse Files
+              Browse PDF Files
             </Button>
-            
-            <div className="flex items-center justify-center space-x-4 text-muted-foreground">
-              <div className="flex items-center space-x-2">
-                <Camera className="h-4 w-4" />
-                <span className="text-sm">Mobile: Take Photo</span>
-              </div>
-            </div>
           </div>
         )}
       </div>

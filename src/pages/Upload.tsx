@@ -215,6 +215,39 @@ const Upload = () => {
     setCurrentStep(step);
   };
 
+  const handleExportExcel = () => {
+    if (!excelData) return;
+    
+    // Create CSV content from excel data
+    const headers = excelData.sheets[0].headers;
+    const rows = excelData.sheets[0].data;
+    
+    let csvContent = headers.join(',') + '\n';
+    rows.forEach((row: any[]) => {
+      csvContent += row.map(cell => `"${cell}"`).join(',') + '\n';
+    });
+    
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `bank_statement_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    toast({
+      title: "Excel Downloaded",
+      description: "Your bank statement data has been exported as CSV.",
+    });
+  };
+
+  const handleExportCSV = () => {
+    handleExportExcel(); // Same implementation for now
+  };
+
   const renderStepIndicator = () => {
     const steps = [
       { id: 'upload', name: 'Upload', icon: UploadIcon },
@@ -350,11 +383,17 @@ const Upload = () => {
                   
                   <div className="flex justify-between items-center">
                     <div className="flex space-x-3">
-                      <Button variant="outline">
+                      <Button 
+                        variant="outline"
+                        onClick={() => handleExportExcel()}
+                      >
                         <Download className="h-4 w-4 mr-2" />
                         Download Excel
                       </Button>
-                      <Button variant="outline">
+                      <Button 
+                        variant="outline"
+                        onClick={() => handleExportCSV()}
+                      >
                         <FileText className="h-4 w-4 mr-2" />
                         Export CSV
                       </Button>
