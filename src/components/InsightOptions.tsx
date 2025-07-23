@@ -12,7 +12,7 @@ import {
   TrendingUp,
   AlertTriangle
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+
 
 interface InsightOptionsProps {
   transactions: any[];
@@ -26,19 +26,131 @@ const InsightOptions = ({ transactions, onInsightGenerated }: InsightOptionsProp
     setLoadingInsight(insightType);
     
     try {
-      const { data, error } = await supabase.functions.invoke('insights-generator', {
-        body: {
-          transactions,
-          insightType,
-          customOptions: {}
-        }
-      });
-
-      if (error) throw error;
+      // Simulate API call delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Generate dummy insights based on type
+      let dummyInsights;
+      
+      switch (insightType) {
+        case 'tax-deductions':
+          dummyInsights = {
+            deductibleExpenses: [
+              {
+                date: "2024-01-29",
+                description: "OFFICE SUPPLIES - STAPLES",
+                amount: 78.45,
+                category: "Business Supplies",
+                deductionType: "Office Expenses",
+                confidence: "High"
+              },
+              {
+                date: "2024-01-26",
+                description: "FREELANCE PAYMENT - CLIENT ABC",
+                amount: 850.00,
+                category: "Business Income",
+                deductionType: "Self-Employment Income",
+                confidence: "High"
+              }
+            ],
+            totalDeductible: 928.45,
+            summary: "Found 2 potentially deductible business expenses totaling $928.45"
+          };
+          break;
+          
+        case 'loan-application':
+          dummyInsights = {
+            incomeAnalysis: {
+              monthlyIncome: 6350.00,
+              incomeStability: "Stable",
+              incomeGrowth: 5.2
+            },
+            debtToIncomeRatio: 0.28,
+            averageBalance: 7070.53,
+            spendingPatterns: {
+              essentials: 65,
+              discretionary: 35
+            },
+            lenderSummary: "Applicant shows stable income with good debt management. Monthly income averages $6,350 with a debt-to-income ratio of 28%, which is within acceptable lending standards."
+          };
+          break;
+          
+        case 'subscription-audit':
+          dummyInsights = {
+            subscriptions: [
+              {
+                merchant: "Netflix",
+                amount: 15.99,
+                frequency: "Monthly",
+                category: "Streaming",
+                lastCharge: "2024-01-22"
+              },
+              {
+                merchant: "Spotify Premium",
+                amount: 9.99,
+                frequency: "Monthly", 
+                category: "Music",
+                lastCharge: "2024-01-28"
+              }
+            ],
+            duplicateServices: [],
+            totalMonthlyCost: 25.98,
+            potentialSavings: 0
+          };
+          break;
+          
+        case 'business-expenses':
+          dummyInsights = {
+            businessExpenses: [
+              {
+                date: "2024-01-29",
+                description: "OFFICE SUPPLIES - STAPLES",
+                amount: 78.45,
+                category: "Supplies",
+                receiptRequired: true
+              }
+            ],
+            personalExpenses: [
+              {
+                date: "2024-01-17",
+                description: "GROCERY STORE - WHOLE FOODS", 
+                amount: 125.75,
+                category: "Food",
+                receiptRequired: false
+              }
+            ],
+            expenseReport: {
+              totalBusiness: 78.45,
+              byCategory: { "Supplies": 78.45 },
+              quarterlyBreakdown: { "Q1": 78.45 }
+            },
+            exportFormats: {
+              quickbooks: "QBO format ready",
+              excel: "CSV export ready"
+            }
+          };
+          break;
+          
+        case 'fraud-alerts':
+          dummyInsights = {
+            alerts: [],
+            spendingPatterns: {
+              unusualSpikes: [],
+              locationAnomalies: [],
+              timePatterns: []
+            },
+            securityScore: 92,
+            recommendations: ["Continue monitoring account regularly", "Set up transaction alerts for amounts over $500"]
+          };
+          break;
+          
+        default:
+          dummyInsights = { message: "Unknown insight type" };
+      }
       
       onInsightGenerated({
         type: insightType,
-        data: data.insights
+        data: dummyInsights
       });
       
     } catch (error) {
