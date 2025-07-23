@@ -9,6 +9,7 @@ import UploadZone from "@/components/UploadZone";
 import ExcelDataTable from "@/components/ExcelDataTable";
 import CategorizationOptions from "@/components/CategorizationOptions";
 import ExportOptions from "@/components/ExportOptions";
+import InsightOptions from "@/components/InsightOptions";
 import { AuthWrapper } from "@/components/AuthWrapper";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -335,6 +336,16 @@ const Upload = () => {
                   <ExcelDataTable 
                     excelData={excelData} 
                     onDataUpdate={setExcelData}
+                  />
+                  
+                  <InsightOptions 
+                    excelData={excelData}
+                    onInsightSelected={(insightType) => {
+                      console.log('Selected insight:', insightType);
+                      // Add logic here to handle different insight types
+                      // For now, we'll continue to categorization
+                      handleContinueToCategorizationFromTable();
+                    }}
                   />
                   
                   <div className="flex justify-between items-center">
