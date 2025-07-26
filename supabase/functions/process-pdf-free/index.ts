@@ -1,18 +1,14 @@
-import "https://deno.land/x/xhr@0.1.0/mod.ts";
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
-
-// Make pdfjs-dist think it's running in a browser
+// polyfills.ts - Set up before any imports
 ;(globalThis as any).navigator = {
   userAgent: "Deno",
   platform:  "Deno"
-}
-;(globalThis as any).window = globalThis
-;(globalThis as any).document = {}  // if pdf.js ever checks for it
+};
+;(globalThis as any).window = globalThis;
+;(globalThis as any).document = {};
 
-import pdfjsLib from "https://esm.sh/pdfjs-dist@2.16.105/legacy/build/pdf.js";
-
-const { getDocument } = pdfjsLib;
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -23,6 +19,14 @@ const corsHeaders = {
 async function extractDigitalText(pdfBytes: Uint8Array): Promise<string> {
   try {
     console.log('Extracting digital text from PDF...');
+    
+    // load pdfjs-dist only now, after our polyfills
+    const pdfjsModule = await import(
+      "https://esm.sh/pdfjs-dist@2.16.105/legacy/build/pdf.js"
+    );
+    const pdfjsLib = pdfjsModule.default;
+    const { getDocument } = pdfjsLib;
+    
     const loadingTask = getDocument({ data: pdfBytes });
     const doc = await loadingTask.promise;
     let fullText = "";
@@ -31,14 +35,14 @@ async function extractDigitalText(pdfBytes: Uint8Array): Promise<string> {
       const page = await doc.getPage(i);
       const content = await page.getTextContent();
       const pageText = content.items.map((item: any) => item.str).join(" ");
-      fullText += `=== PAGE ${i} ===\n${pageText}\n\n`;
+      fullText += pageText + "\n\n";
     }
     
     console.log(`Digital text extracted: ${fullText.length} characters`);
     return fullText.trim();
-  } catch (error) {
-    console.error('Digital text extraction failed:', error);
-    return '';
+  } catch (err) {
+    console.warn("pdf.js embedded‑text extraction failed:", err);
+    return "";
   }
 }
 
