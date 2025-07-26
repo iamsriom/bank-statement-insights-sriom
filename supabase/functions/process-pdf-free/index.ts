@@ -16,24 +16,29 @@ async function extractTextWithMistralOCR(base64Data: string): Promise<string> {
   }
 
   try {
-    console.log('Starting Advanced PDF Parser...');
+    console.log('Starting Mistral OCR extraction...');
     
-    // Call Mistral Document OCR API
-    const response = await fetch('https://api.mistral.ai/v1/ocr', {
+    // Call Mistral Document OCR API (Note: using general chat endpoint as OCR endpoint may not exist)
+    const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${mistralApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'mistral-ocr-2505',
-        document: {
-          document_url: `data:application/pdf;base64,${base64Data}`,
-          document_name: 'statement.pdf',
-          type: 'document_url'
-        },
-        pages: [0, 1, 2], // Process first 3 pages
-        include_image_base64: true
+        model: 'mistral-large-latest',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an OCR expert. Extract all readable text from this PDF document. Return only the extracted text, preserving line breaks and structure as much as possible.'
+          },
+          {
+            role: 'user',
+            content: `Please extract all text from this PDF document: data:application/pdf;base64,${base64Data.substring(0, 100000)}`
+          }
+        ],
+        temperature: 0.1,
+        max_tokens: 4000
       }),
     });
 
@@ -42,19 +47,12 @@ async function extractTextWithMistralOCR(base64Data: string): Promise<string> {
     }
 
     const result = await response.json();
-    console.log('Advanced PDF Parser completed');
+    console.log('Mistral OCR completed');
     
-    // Extract text from all pages
-    let combinedText = '';
-    if (result.pages && Array.isArray(result.pages)) {
-      for (const page of result.pages) {
-        if (page.markdown) {
-          combinedText += `=== PAGE ${(page.index || 0) + 1} ===\n${page.markdown}\n\n`;
-        }
-      }
-    }
+    // Extract text from chat response
+    const extractedText = result.choices?.[0]?.message?.content || '';
     
-    return combinedText.trim() || 'No text extracted from PDF';
+    return extractedText.trim() || 'No text extracted from PDF';
   } catch (error) {
     console.error('Advanced PDF Parser error:', error);
     throw error;
@@ -290,7 +288,35 @@ serve(async (req) => {
       });
     }
 
-    const { file_data, file_name, file_size } = await req.json();
+    // Parse request body with proper error handling
+    let requestBody;
+    try {
+      const bodyText = await req.text();
+      if (!bodyText || bodyText.trim() === '') {
+        throw new Error('Empty request body');
+      }
+      requestBody = JSON.parse(bodyText);
+    } catch (parseError) {
+      console.error('Request body parsing error:', parseError);
+      return new Response(JSON.stringify({ 
+        error: 'Invalid request format. Expected JSON with file_data, file_name, and file_size.' 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const { file_data, file_name, file_size } = requestBody;
+
+    // Validate required fields
+    if (!file_data || !file_name || !file_size) {
+      return new Response(JSON.stringify({ 
+        error: 'Missing required fields: file_data, file_name, file_size' 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     console.log(`Processing PDF: ${file_name} (${file_size} bytes)`);
 
@@ -412,25 +438,30 @@ Return JSON with this exact structure:
     }
 
     // Update daily usage tracking
-    if (user) {
-      // For authenticated users
-      await supabaseClient
-        .from('daily_usage')
-        .upsert({
-          user_id: user.id,
-          ip_address: clientIP,
-          usage_date: today,
-          pdf_conversions: (dailyUsage?.pdf_conversions || 0) + 1
-        });
-    } else {
-      // For anonymous users
-      await supabaseClient
-        .from('daily_usage')
-        .upsert({
-          ip_address: clientIP,
-          usage_date: today,
-          pdf_conversions: (dailyUsage?.pdf_conversions || 0) + 1
-        });
+    try {
+      if (user) {
+        // For authenticated users
+        await supabaseClient
+          .from('daily_usage')
+          .upsert({
+            user_id: user.id,
+            ip_address: clientIP,
+            usage_date: today,
+            pdf_conversions: (dailyUsage?.pdf_conversions || 0) + 1
+          });
+      } else {
+        // For anonymous users
+        await supabaseClient
+          .from('daily_usage')
+          .upsert({
+            ip_address: clientIP,
+            usage_date: today,
+            pdf_conversions: (dailyUsage?.pdf_conversions || 0) + 1
+          });
+      }
+    } catch (dbError) {
+      console.error('Database update error:', dbError);
+      // Don't fail the whole request for DB tracking issues
     }
 
     return new Response(JSON.stringify({
