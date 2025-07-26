@@ -223,187 +223,19 @@ function parseBankStatement(text: string): any {
   };
 }
 
-serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
-  }
+// PDF processing function that takes raw bytes and filename
+async function processBuffer(pdfBytes: Uint8Array, filename: string): Promise<Response> {
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  };
 
   try {
-    // Get client IP for daily usage tracking
-    const clientIP = req.headers.get('x-forwarded-for') || 
-                     req.headers.get('x-real-ip') || 
-                     'unknown';
+    console.log(`Processing PDF: ${filename} (${pdfBytes.length} bytes)`);
 
-    const supabaseClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-      { auth: { persistSession: false } }
-    );
-
-    // Check for authenticated user (optional)
-    let user = null;
-    const authHeader = req.headers.get('Authorization');
-    if (authHeader) {
-      try {
-        const { data } = await supabaseClient.auth.getUser(authHeader.replace('Bearer ', ''));
-        user = data.user;
-      } catch (error) {
-        console.log('No authenticated user, proceeding as anonymous');
-      }
-    }
-
-    // Check daily usage limit for free PDF conversions
-    const today = new Date().toISOString().split('T')[0];
-    
-    let dailyUsage;
-    if (user) {
-      // Check by user_id for authenticated users
-      const { data } = await supabaseClient
-        .from('daily_usage')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('usage_date', today)
-        .single();
-      dailyUsage = data;
-    } else {
-      // Check by IP for anonymous users
-      const { data } = await supabaseClient
-        .from('daily_usage')
-        .select('*')
-        .eq('ip_address', clientIP)
-        .eq('usage_date', today)
-        .single();
-      dailyUsage = data;
-    }
-
-    // Check if daily limit exceeded (1 free conversion per day)
-    if (dailyUsage && dailyUsage.pdf_conversions >= 1) {
-      return new Response(JSON.stringify({ 
-        error: 'Daily free conversion limit reached. Sign up for unlimited conversions!',
-        limit_exceeded: true,
-        remaining_conversions: 0
-      }), {
-        status: 429,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Detect content-type and handle JSON, form-data, and raw bytes
-    const contentType = req.headers.get("content-type") || "";
-    console.log('Request content-type:', contentType);
-
-    let fileData: string; // base64 string for our processing
-    let fileName: string;
-    let fileSize: number;
-
-    // 1. If the client sent JSON { file_data, file_name, file_size }
-    if (contentType.includes("application/json")) {
-      let body: any;
-      try {
-        const bodyText = await req.text();
-        console.log('Request body length:', bodyText.length);
-        console.log('Request body preview:', bodyText.substring(0, 200));
-        
-        if (!bodyText || bodyText.trim() === '') {
-          throw new Error('Empty request body');
-        }
-        body = JSON.parse(bodyText);
-        console.log('Parsed JSON body keys:', Object.keys(body));
-      } catch (parseError) {
-        console.error('JSON parsing error:', parseError);
-        return new Response(JSON.stringify({ 
-          error: 'Invalid or empty JSON body',
-          details: parseError.message
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-      
-      fileData = body.file_data; // Already base64
-      fileName = body.file_name;
-      fileSize = Number(body.file_size);
-
-    // 2. If the client sent multipart/form-data
-    } else if (contentType.includes("multipart/form-data")) {
-      try {
-        const form = await req.formData();
-        const file = form.get("file") as File;
-        
-        if (!file) {
-          return new Response(JSON.stringify({ 
-            error: "No file in form-data" 
-          }), {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          });
-        }
-        
-        fileName = file.name;
-        fileSize = file.size;
-        
-        // Convert file to base64 for our processing
-        const arrayBuffer = await file.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-        fileData = btoa(String.fromCharCode(...uint8Array));
-        
-      } catch (formError) {
-        console.error('Form-data parsing error:', formError);
-        return new Response(JSON.stringify({ 
-          error: 'Failed to parse form-data' 
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-    // 3. If the client sent raw bytes (application/octet-stream)
-    } else if (contentType.includes("application/octet-stream")) {
-      try {
-        console.log('Processing raw bytes...');
-        const arrayBuffer = await req.arrayBuffer();
-        const uint8Array = new Uint8Array(arrayBuffer);
-        fileSize = uint8Array.length;
-        
-        // Get filename from header or default
-        fileName = req.headers.get("x-file-name") || "upload.pdf";
-        
-        // Convert to base64 for our processing
-        fileData = btoa(String.fromCharCode(...uint8Array));
-        
-        console.log(`Got raw bytes: ${fileName}, ${fileSize} bytes`);
-        
-      } catch (binaryError) {
-        console.error('Binary parsing error:', binaryError);
-        return new Response(JSON.stringify({ 
-          error: 'Failed to parse binary data' 
-        }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-
-    } else {
-      return new Response(JSON.stringify({ 
-        error: `Unsupported content-type: ${contentType}. Expected application/json, multipart/form-data, or application/octet-stream` 
-      }), {
-        status: 415,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    // Validate required fields
-    if (!fileData || !fileName || !fileSize) {
-      console.error('Missing fields:', { hasFileData: !!fileData, fileName, fileSize });
-      return new Response(JSON.stringify({ 
-        error: 'Missing required fields: file_data, file_name, file_size' 
-      }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
-    console.log(`Processing PDF: ${fileName} (${fileSize} bytes)`);
+    // Convert to base64 for Mistral API
+    const fileData = btoa(String.fromCharCode(...pdfBytes));
+    const fileSize = pdfBytes.length;
 
     let excelData;
     let extractedText = '';
@@ -414,15 +246,15 @@ serve(async (req) => {
       
       if (mistralApiKey && mistralApiKey.trim() !== '') {
         try {
-          console.log('Using Advanced PDF Parser with OCR...');
+          console.log('Using Mistral OCR extraction...');
           extractedText = await extractTextWithMistralOCR(fileData);
           console.log(`OCR extracted text length: ${extractedText.length}`);
         } catch (mistralError) {
-          console.log('Advanced PDF Parser failed, using fallback:', mistralError.message);
+          console.log('Mistral OCR failed, using fallback:', mistralError.message);
           extractedText = extractTextFromPDFFallback(fileData);
         }
       } else {
-        console.log('Advanced PDF Parser not available, using fallback extraction');
+        console.log('Mistral OCR not available, using fallback extraction');
         extractedText = extractTextFromPDFFallback(fileData);
       }
       
@@ -522,33 +354,6 @@ Return JSON with this exact structure:
       throw new Error(`PDF processing failed: ${error.message}`);
     }
 
-    // Update daily usage tracking
-    try {
-      if (user) {
-        // For authenticated users
-        await supabaseClient
-          .from('daily_usage')
-          .upsert({
-            user_id: user.id,
-            ip_address: clientIP,
-            usage_date: today,
-            pdf_conversions: (dailyUsage?.pdf_conversions || 0) + 1
-          });
-      } else {
-        // For anonymous users
-        await supabaseClient
-          .from('daily_usage')
-          .upsert({
-            ip_address: clientIP,
-            usage_date: today,
-            pdf_conversions: (dailyUsage?.pdf_conversions || 0) + 1
-          });
-      }
-    } catch (dbError) {
-      console.error('Database update error:', dbError);
-      // Don't fail the whole request for DB tracking issues
-    }
-
     return new Response(JSON.stringify({
       success: true,
       excel_data: excelData,
@@ -559,9 +364,102 @@ Return JSON with this exact structure:
     });
 
   } catch (error) {
-    console.error('Error in PDF processing:', error);
+    console.error('Error in processBuffer:', error);
     return new Response(JSON.stringify({ 
       error: 'Failed to process PDF',
+      details: error.message 
+    }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+}
+
+serve(async (req) => {
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const ct = req.headers.get("content-type") || "";
+    console.log('Request content-type:', ct);
+
+    // 1. Multipart/form-data (if you ever send form-data)
+    if (ct.includes("multipart/form-data")) {
+      console.log('Processing multipart/form-data...');
+      const form = await req.formData();
+      const file = form.get("file") as File;
+      if (!file) {
+        return new Response(JSON.stringify({ error: "No file in form-data" }), { 
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+      const buf = await file.arrayBuffer();
+      return await processBuffer(new Uint8Array(buf), file.name);
+    }
+
+    // 2. Otherwise grab *all* incoming bytes
+    const raw = await req.arrayBuffer();
+    console.log("Raw body length:", raw.byteLength);
+    
+    if (raw.byteLength === 0) {
+      return new Response(JSON.stringify({ error: "Empty request body" }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+
+    // 3. Detect JSON vs. binary
+    if (ct.includes("application/json")) {
+      console.log('Processing as JSON...');
+      // Only JSON‑parse *if* you actually sent JSON
+      let body: any;
+      try {
+        const textContent = new TextDecoder().decode(raw);
+        console.log('JSON content preview:', textContent.substring(0, 200));
+        body = JSON.parse(textContent);
+        console.log('Parsed JSON body keys:', Object.keys(body));
+      } catch (parseError) {
+        console.error('JSON parsing error:', parseError);
+        return new Response(JSON.stringify({ error: "Invalid JSON payload" }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+      
+      // Expect base64‑encoded PDF in file_data
+      const b64 = body.file_data;
+      if (!b64) {
+        return new Response(JSON.stringify({ error: "Missing file_data in JSON" }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+      
+      try {
+        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+        return await processBuffer(bytes, body.file_name || 'upload.pdf');
+      } catch (base64Error) {
+        console.error('Base64 decode error:', base64Error);
+        return new Response(JSON.stringify({ error: "Invalid base64 data" }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
+    }
+
+    // 4. Fallback: treat raw bytes as PDF blob
+    console.log('Processing as raw bytes...');
+    const bytes = new Uint8Array(raw);
+    // read filename header or use default
+    const fname = req.headers.get("x-file-name") || "upload.pdf";
+    return await processBuffer(bytes, fname);
+
+  } catch (error) {
+    console.error('Handler error:', error);
+    return new Response(JSON.stringify({ 
+      error: 'Request processing failed',
       details: error.message 
     }), {
       status: 500,
