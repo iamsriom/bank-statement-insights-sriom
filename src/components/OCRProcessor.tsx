@@ -43,17 +43,16 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
       // Generate file hash for deduplication
       const fileHash = await generateFileHash(fileData);
       
-      onProgress(60, "Processing document with Mistral OCR...");
+      onProgress(60, "Processing document with Advanced PDF Parser...");
       
       // Get current session for authentication (optional)
       const { data: { session } } = await supabase.auth.getSession();
       
-      const { data, error } = await supabase.functions.invoke('process-statement', {
+      const { data, error } = await supabase.functions.invoke('process-pdf-free', {
         body: {
-          fileName,
-          fileData,
-          fileSize,
-          fileHash
+          file_data: fileData,
+          file_name: fileName,
+          file_size: fileSize
         },
         headers: session ? { Authorization: `Bearer ${session.access_token}` } : {}
       });
@@ -108,14 +107,11 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
       
       // Transform response to match expected format
       const finalData = {
-        transactions: processedData.excelData.sheets[0].data.map((row: any[]) => ({
-          date: row[0],
-          description: row[1],
-          amount: row[2],
-          balance: row[3],
-          type: row[4]
-        })),
-        metadata: processedData.excelData.metadata,
+        transactions: processedData.excel_data?.transactions || [],
+        account_info: processedData.excel_data?.account_info || {},
+        summary: processedData.excel_data?.summary || {},
+        date_range: processedData.excel_data?.date_range || {},
+        metadata: processedData.excel_data || {},
         originalFile: {
           name: file.name,
           size: file.size,
