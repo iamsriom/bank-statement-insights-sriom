@@ -47,32 +47,10 @@ const HeroSection = () => {
               </div>
             </div>
 
-            {user ? (
-              /* Authenticated User - Show Upload Zone */
-              <div className="max-w-2xl mx-auto mb-8">
-                <UploadZone />
-              </div>
-            ) : (
-              /* Unauthenticated User - Show Sign In CTA */
-              <div className="text-center space-y-6 mb-8">
-                <div className="bg-muted/50 border border-border rounded-lg p-8 max-w-md mx-auto">
-                  <Shield className="h-12 w-12 text-primary mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Get Started with 5 Free Credits</h3>
-                  <p className="text-muted-foreground text-sm mb-4">
-                    Sign in to start analyzing your bank statements with AI
-                  </p>
-                  <Button 
-                    variant="hero" 
-                    size="lg" 
-                    className="w-full group"
-                    onClick={() => window.location.href = '/auth?mode=signup'}
-                  >
-                    Sign In to Get Started
-                    <ArrowRight className="h-4 w-4 ml-2 group-hover:translate-x-1 transition-transform" />
-                  </Button>
-                </div>
-              </div>
-            )}
+            {/* Upload Zone - Always Available */}
+            <div className="max-w-2xl mx-auto mb-8">
+              <UploadZone />
+            </div>
 
             {/* AI Analysis Features Preview */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-16">

@@ -218,7 +218,7 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
 
   const getUploadText = () => {
     return {
-      main: isDragActive ? "Drop your PDF statements here" : "Upload your PDF bank statements",
+      main: isDragActive ? "Drop your PDF statements here" : "Convert PDF statements to Excel",
       sub: "Multiple files supported • 1 free conversion per day • No registration required"
     };
   };
@@ -380,7 +380,7 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
                 <div className="bg-primary/10 border border-primary/20 rounded-lg p-3">
                   <div className="flex items-center justify-center space-x-2 text-primary text-sm">
                     <Coins className="h-4 w-4" />
-                    <span>Sign up for unlimited conversions + AI analysis</span>
+                    <span>Sign up for AI-powered insights & analysis</span>
                   </div>
                 </div>
               )}
