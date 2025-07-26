@@ -95,6 +95,36 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_usage: {
+        Row: {
+          created_at: string
+          id: string
+          ip_address: string
+          pdf_conversions: number
+          updated_at: string
+          usage_date: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          ip_address: string
+          pdf_conversions?: number
+          updated_at?: string
+          usage_date?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          ip_address?: string
+          pdf_conversions?: number
+          updated_at?: string
+          usage_date?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       export_logs: {
         Row: {
           download_count: number | null

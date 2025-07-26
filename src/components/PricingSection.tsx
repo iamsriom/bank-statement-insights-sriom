@@ -6,71 +6,52 @@ import { Check, Zap, Crown, Star, Shield } from "lucide-react";
 const PricingSection = () => {
   const plans = [
     {
-      name: "Free",
+      name: "Free Daily",
       price: "$0",
       period: "forever",
-      description: "Perfect for getting started",
-      icon: Zap,
+      description: "Perfect for occasional bank statement analysis",
+      icon: Shield,
       features: [
-        "2 statements per month",
-        "Basic transaction categorization",
-        "Spending overview charts",
-        "PDF/image upload support",
-        "Bank-level encryption"
+        "1 free PDF to Excel conversion per day",
+        "Basic transaction extraction",
+        "CSV export functionality", 
+        "No registration required",
+        "Complete privacy - no data stored"
       ],
       limitations: [
-        "Watermarked exports",
-        "No tax insights",
-        "Limited analytics"
+        "No AI analysis features",
+        "No tax deduction finder",
+        "No subscription audit",
+        "No loan application tools",
+        "No fraud detection"
       ],
-      cta: "Get Started Free",
+      cta: "Start Converting",
       variant: "outline" as const,
-      popular: false
+      popular: false,
     },
     {
       name: "Premium",
-      price: "$9.99",
+      price: "$20",
       period: "per month",
-      description: "Everything you need for financial insights",
+      description: "Full AI-powered financial analysis suite",
       icon: Crown,
       features: [
-        "Unlimited statements",
-        "Advanced AI categorization",
-        "Tax deduction detection",
-        "Subscription tracking & cancellation",
-        "Financial health score",
-        "Unlimited exports (Excel, CSV, PDF)",
-        "QuickBooks integration",
+        "Unlimited PDF to Excel conversions",
+        "5 AI analysis tools included:",
+        "→ Tax Deduction Finder (2 credits)",
+        "→ Loan Application Package (2 credits)", 
+        "→ Subscription Audit (1 credit)",
+        "→ Business Expense Reports (2 credits)",
+        "→ Fraud & Anomaly Detection (2 credits)",
+        "Monthly credit allowance",
         "Priority processing",
-        "Email support"
+        "Advanced export formats"
       ],
       limitations: [],
-      cta: "Start Premium Trial",
+      cta: "Start Free Trial",
       variant: "hero" as const,
-      popular: true
+      popular: true,
     },
-    {
-      name: "Business",
-      price: "$29.99",
-      period: "per month",
-      description: "For businesses and accountants",
-      icon: Star,
-      features: [
-        "Everything in Premium",
-        "Multi-client management",
-        "Bulk statement processing",
-        "Custom categorization rules",
-        "Advanced tax reporting",
-        "API access",
-        "White-label options",
-        "Dedicated account manager",
-        "Phone support"
-      ],
-      limitations: [],
-      cta: "Contact Sales",
-      variant: "outline" as const,
-      popular: false
-    }
   ];
 
   return (
@@ -90,7 +71,7 @@ const PricingSection = () => {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+        <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
           {plans.map((plan, index) => (
             <Card 
               key={index} 
