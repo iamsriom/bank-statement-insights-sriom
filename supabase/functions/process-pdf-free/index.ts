@@ -288,7 +288,7 @@ serve(async (req) => {
       });
     }
 
-    // Detect content-type and handle both JSON and form-data
+    // Detect content-type and handle JSON, form-data, and raw bytes
     const contentType = req.headers.get("content-type") || "";
     console.log('Request content-type:', contentType);
 
@@ -301,14 +301,19 @@ serve(async (req) => {
       let body: any;
       try {
         const bodyText = await req.text();
+        console.log('Request body length:', bodyText.length);
+        console.log('Request body preview:', bodyText.substring(0, 200));
+        
         if (!bodyText || bodyText.trim() === '') {
           throw new Error('Empty request body');
         }
         body = JSON.parse(bodyText);
+        console.log('Parsed JSON body keys:', Object.keys(body));
       } catch (parseError) {
         console.error('JSON parsing error:', parseError);
         return new Response(JSON.stringify({ 
-          error: 'Invalid or empty JSON body' 
+          error: 'Invalid or empty JSON body',
+          details: parseError.message
         }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -352,9 +357,35 @@ serve(async (req) => {
         });
       }
 
+    // 3. If the client sent raw bytes (application/octet-stream)
+    } else if (contentType.includes("application/octet-stream")) {
+      try {
+        console.log('Processing raw bytes...');
+        const arrayBuffer = await req.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        fileSize = uint8Array.length;
+        
+        // Get filename from header or default
+        fileName = req.headers.get("x-file-name") || "upload.pdf";
+        
+        // Convert to base64 for our processing
+        fileData = btoa(String.fromCharCode(...uint8Array));
+        
+        console.log(`Got raw bytes: ${fileName}, ${fileSize} bytes`);
+        
+      } catch (binaryError) {
+        console.error('Binary parsing error:', binaryError);
+        return new Response(JSON.stringify({ 
+          error: 'Failed to parse binary data' 
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
     } else {
       return new Response(JSON.stringify({ 
-        error: `Unsupported content-type: ${contentType}. Expected application/json or multipart/form-data` 
+        error: `Unsupported content-type: ${contentType}. Expected application/json, multipart/form-data, or application/octet-stream` 
       }), {
         status: 415,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -363,6 +394,7 @@ serve(async (req) => {
 
     // Validate required fields
     if (!fileData || !fileName || !fileSize) {
+      console.error('Missing fields:', { hasFileData: !!fileData, fileName, fileSize });
       return new Response(JSON.stringify({ 
         error: 'Missing required fields: file_data, file_name, file_size' 
       }), {
