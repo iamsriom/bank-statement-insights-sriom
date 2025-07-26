@@ -27,9 +27,11 @@ const Upload = () => {
   const [isStoringData, setIsStoringData] = useState(false);
   const [isAnonymousMode, setIsAnonymousMode] = useState(false);
 
-  const handleFileUpload = (file: File) => {
-    console.log('File uploaded:', file.name);
-    setUploadedFile(file);
+  const handleFileUpload = (files: File[]) => {
+    console.log('Files uploaded:', files.map(f => f.name).join(', '));
+    if (files.length > 0) {
+      setUploadedFile(files[0]); // Keep first file for backward compatibility
+    }
     // Don't automatically reset state - let processing complete or fail
   };
 

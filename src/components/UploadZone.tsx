@@ -2,31 +2,39 @@ import { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Upload, FileText, Check, AlertCircle, Clock, Coins, Shield } from "lucide-react";
+import { Upload, FileText, Check, AlertCircle, Clock, Coins, Shield, Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { AuthWrapper } from "./AuthWrapper";
 import { useToast } from "@/hooks/use-toast";
+import * as XLSX from 'xlsx';
+
+interface ProcessedFile {
+  file: File;
+  status: 'idle' | 'processing' | 'success' | 'error' | 'limit_exceeded';
+  progress: number;
+  statusMessage: string;
+  errorMessage?: string;
+  processedData?: any;
+}
 
 interface UploadZoneProps {
-  onFileUpload?: (file: File) => void;
+  onFileUpload?: (files: File[]) => void;
   onProcessedData?: (processedData: any) => void;
   className?: string;
 }
 
 const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProps) => {
-  const [uploadStatus, setUploadStatus] = useState<'idle' | 'processing' | 'success' | 'error' | 'limit_exceeded'>('idle');
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [statusMessage, setStatusMessage] = useState('');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [processedFiles, setProcessedFiles] = useState<ProcessedFile[]>([]);
   const [remainingConversions, setRemainingConversions] = useState<number | null>(null);
   const { toast } = useToast();
 
-  const processFile = async (file: File, authToken?: string) => {
+  const processFile = async (file: File, fileIndex: number, authToken?: string) => {
     try {
-      setProgress(20);
-      setStatusMessage('Converting file to base64...');
+      // Update file status to processing
+      setProcessedFiles(prev => prev.map((pf, i) => 
+        i === fileIndex ? { ...pf, status: 'processing', progress: 20, statusMessage: 'Converting file to base64...' } : pf
+      ));
 
       // Convert file to base64
       const reader = new FileReader();
@@ -36,8 +44,9 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
         reader.readAsDataURL(file);
       });
 
-      setProgress(40);
-      setStatusMessage('Processing with AI...');
+      setProcessedFiles(prev => prev.map((pf, i) => 
+        i === fileIndex ? { ...pf, progress: 40, statusMessage: 'Processing with AI...' } : pf
+      ));
 
       // Call the free PDF processing function
       const headers: Record<string, string> = {
@@ -59,21 +68,24 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
 
       if (response.error) {
         if (response.error.message?.includes('limit reached')) {
-          setUploadStatus('limit_exceeded');
+          setProcessedFiles(prev => prev.map((pf, i) => 
+            i === fileIndex ? { 
+              ...pf, 
+              status: 'limit_exceeded', 
+              errorMessage: 'Daily free conversion limit reached. Sign up for unlimited conversions!' 
+            } : pf
+          ));
           setRemainingConversions(0);
-          setErrorMessage('Daily free conversion limit reached. Sign up for unlimited conversions!');
           return;
         }
         throw new Error(response.error.message);
       }
 
-      setProgress(80);
-      setStatusMessage('Finalizing...');
+      setProcessedFiles(prev => prev.map((pf, i) => 
+        i === fileIndex ? { ...pf, progress: 80, statusMessage: 'Finalizing...' } : pf
+      ));
 
       const data = response.data;
-      setProgress(100);
-      setStatusMessage('Processing complete!');
-      setUploadStatus('success');
       setRemainingConversions(data.remaining_conversions);
 
       // Format data for parent component
@@ -96,6 +108,16 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
         }
       };
 
+      setProcessedFiles(prev => prev.map((pf, i) => 
+        i === fileIndex ? { 
+          ...pf, 
+          status: 'success', 
+          progress: 100, 
+          statusMessage: 'Processing complete!',
+          processedData: formattedData
+        } : pf
+      ));
+
       onProcessedData?.(formattedData);
 
       toast({
@@ -105,8 +127,13 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
 
     } catch (error: any) {
       console.error('Processing error:', error);
-      setUploadStatus('error');
-      setErrorMessage(error.message || 'Failed to process file');
+      setProcessedFiles(prev => prev.map((pf, i) => 
+        i === fileIndex ? { 
+          ...pf, 
+          status: 'error', 
+          errorMessage: error.message || 'Failed to process file'
+        } : pf
+      ));
       toast({
         title: "Processing Failed",
         description: error.message || "Please try again",
@@ -117,20 +144,25 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
 
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
-      const file = acceptedFiles[0];
-      setUploadedFile(file);
-      setUploadStatus('processing');
-      setProgress(0);
-      setStatusMessage('Starting processing...');
-      setErrorMessage(null);
+      // Initialize processed files array
+      const newProcessedFiles: ProcessedFile[] = acceptedFiles.map(file => ({
+        file,
+        status: 'idle',
+        progress: 0,
+        statusMessage: 'Starting processing...'
+      }));
       
-      onFileUpload?.(file);
+      setProcessedFiles(newProcessedFiles);
+      onFileUpload?.(acceptedFiles);
 
       // Get auth token if user is logged in
       const { data: { session } } = await supabase.auth.getSession();
       const authToken = session?.access_token;
 
-      await processFile(file, authToken);
+      // Process each file
+      for (let i = 0; i < acceptedFiles.length; i++) {
+        await processFile(acceptedFiles[i], i, authToken);
+      }
     }
   }, [onFileUpload, onProcessedData, toast]);
 
@@ -139,204 +171,177 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
     accept: {
       'application/pdf': ['.pdf']
     },
-    multiple: false,
+    multiple: true,
     maxSize: 10 * 1024 * 1024, // 10MB
-    disabled: uploadStatus === 'processing',
+    disabled: processedFiles.some(pf => pf.status === 'processing'),
   });
 
-  const getUploadIcon = () => {
-    switch (uploadStatus) {
+  const downloadExcel = (processedData: any, fileName: string) => {
+    const wb = XLSX.utils.book_new();
+    
+    // Add main transactions sheet
+    const ws = XLSX.utils.aoa_to_sheet([
+      processedData.sheets[0].headers,
+      ...processedData.sheets[0].data
+    ]);
+    
+    XLSX.utils.book_append_sheet(wb, ws, processedData.sheets[0].name);
+    
+    // Add metadata sheet if available
+    if (processedData.metadata) {
+      const metadataWs = XLSX.utils.json_to_sheet([
+        { Field: 'Account Info', Value: JSON.stringify(processedData.metadata.account_info) },
+        { Field: 'Date Range', Value: JSON.stringify(processedData.metadata.date_range) },
+        { Field: 'Summary', Value: JSON.stringify(processedData.metadata.summary) }
+      ]);
+      XLSX.utils.book_append_sheet(wb, metadataWs, 'Metadata');
+    }
+    
+    // Generate file name
+    const cleanFileName = fileName.replace('.pdf', '') + '.xlsx';
+    XLSX.writeFile(wb, cleanFileName);
+  };
+
+  const getUploadIcon = (status?: string) => {
+    switch (status) {
       case 'processing':
-        return <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />;
+        return <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />;
       case 'success':
-        return <Check className="h-12 w-12 text-success" />;
+        return <Check className="h-8 w-8 text-success" />;
       case 'error':
       case 'limit_exceeded':
-        return <AlertCircle className="h-12 w-12 text-destructive" />;
+        return <AlertCircle className="h-8 w-8 text-destructive" />;
       default:
         return <Upload className="h-12 w-12 text-muted-foreground" />;
     }
   };
 
   const getUploadText = () => {
-    switch (uploadStatus) {
-      case 'processing':
-        return {
-          main: "Processing your statement...",
-          sub: statusMessage
-        };
-      case 'success':
-        return {
-          main: "Statement processed successfully!",
-          sub: `${uploadedFile?.name} • Free conversion used`
-        };
-      case 'limit_exceeded':
-        return {
-          main: "Daily limit reached",
-          sub: "Sign up for unlimited conversions!"
-        };
-      case 'error':
-        return {
-          main: "Processing failed",
-          sub: errorMessage || "Please try again or choose a different file"
-        };
-      default:
-        return {
-          main: isDragActive ? "Drop your PDF statement here" : "Upload your PDF bank statement",
-          sub: "1 free conversion per day • No registration required"
-        };
-    }
+    return {
+      main: isDragActive ? "Drop your PDF statements here" : "Upload your PDF bank statements",
+      sub: "Multiple files supported • 1 free conversion per day • No registration required"
+    };
   };
 
-  const handleNewFile = () => {
-    setUploadedFile(null);
-    setUploadStatus('idle');
-    setProgress(0);
-    setStatusMessage('');
-    setErrorMessage(null);
+  const handleNewFiles = () => {
+    setProcessedFiles([]);
   };
 
-  const handleRetry = async () => {
-    if (uploadedFile) {
-      setUploadStatus('processing');
-      setProgress(0);
-      setStatusMessage('Retrying...');
-      setErrorMessage(null);
-      
-      const { data: { session } } = await supabase.auth.getSession();
-      const authToken = session?.access_token;
-      
-      await processFile(uploadedFile, authToken);
-    }
+  const handleRetry = async (fileIndex: number) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const authToken = session?.access_token;
+    
+    setProcessedFiles(prev => prev.map((pf, i) => 
+      i === fileIndex ? { ...pf, status: 'processing', progress: 0, statusMessage: 'Retrying...', errorMessage: undefined } : pf
+    ));
+    
+    await processFile(processedFiles[fileIndex].file, fileIndex, authToken);
   };
 
   const text = getUploadText();
 
-  // Show processing progress
-  if (uploadStatus === 'processing') {
-    return (
-      <div className={cn("space-y-4", className)}>
-        <Card className="p-8">
-          <div className="space-y-6 text-center">
-            <div className="flex justify-center">
-              {getUploadIcon()}
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-lg font-semibold">{text.main}</h3>
-              <p className="text-muted-foreground">{text.sub}</p>
-            </div>
-            <div className="w-full bg-muted rounded-full h-2">
-              <div 
-                className="bg-primary h-2 rounded-full transition-all duration-300" 
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <div className="text-sm text-muted-foreground">
-              {progress}% complete
-            </div>
-          </div>
-        </Card>
-      </div>
-    );
-  }
-
-  // Show success state
-  if (uploadStatus === 'success') {
+  // Show processed files if any
+  if (processedFiles.length > 0) {
     return (
       <AuthWrapper>
         {({ user }) => (
           <div className={cn("space-y-4", className)}>
-            <Card className="p-8">
-              <div className="space-y-6 text-center">
-                <div className="flex justify-center">
-                  {getUploadIcon()}
-                </div>
-                <div className="space-y-2">
-                  <h3 className="text-lg font-semibold">{text.main}</h3>
-                  <p className="text-muted-foreground">{text.sub}</p>
-                </div>
-                {!user && (
-                  <div className="bg-primary/10 border border-primary/20 rounded-lg p-4">
-                    <div className="flex items-center justify-center space-x-2 text-primary">
-                      <Clock className="h-4 w-4" />
-                      <span className="text-sm font-medium">
-                        Next free conversion available tomorrow
-                      </span>
+            {processedFiles.map((pFile, index) => (
+              <Card key={index} className="p-6">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      {getUploadIcon(pFile.status)}
+                      <div>
+                        <h4 className="font-medium">{pFile.file.name}</h4>
+                        <p className="text-sm text-muted-foreground">{pFile.statusMessage}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      {pFile.status === 'success' && pFile.processedData && (
+                        <Button 
+                          onClick={() => downloadExcel(pFile.processedData, pFile.file.name)}
+                          variant="outline"
+                          size="sm"
+                        >
+                          <Download className="h-4 w-4 mr-2" />
+                          Download Excel
+                        </Button>
+                      )}
+                      {pFile.status === 'error' && (
+                        <Button 
+                          onClick={() => handleRetry(index)}
+                          variant="outline"
+                          size="sm"
+                        >
+                          Retry
+                        </Button>
+                      )}
+                      {pFile.status === 'limit_exceeded' && (
+                        <Button 
+                          onClick={() => window.location.href = '/auth'}
+                          variant="default"
+                          size="sm"
+                        >
+                          Sign Up
+                        </Button>
+                      )}
                     </div>
                   </div>
-                )}
-                <Button onClick={handleNewFile} variant="outline">
-                  Process Another Statement
-                </Button>
-              </div>
-            </Card>
-          </div>
-        )}
-      </AuthWrapper>
-    );
-  }
-
-  // Show limit exceeded state
-  if (uploadStatus === 'limit_exceeded') {
-    return (
-      <div className={cn("space-y-4", className)}>
-        <Card className="p-8">
-          <div className="space-y-6 text-center">
-            <div className="flex justify-center">
-              {getUploadIcon()}
+                  
+                  {pFile.status === 'processing' && (
+                    <div className="space-y-2">
+                      <div className="w-full bg-muted rounded-full h-2">
+                        <div 
+                          className="bg-primary h-2 rounded-full transition-all duration-300" 
+                          style={{ width: `${pFile.progress}%` }}
+                        />
+                      </div>
+                      <div className="text-sm text-muted-foreground text-center">
+                        {pFile.progress}% complete
+                      </div>
+                    </div>
+                  )}
+                  
+                  {pFile.status === 'error' && pFile.errorMessage && (
+                    <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                      <p className="text-destructive text-sm">{pFile.errorMessage}</p>
+                    </div>
+                  )}
+                  
+                  {pFile.status === 'limit_exceeded' && (
+                    <div className="bg-muted rounded-lg p-3">
+                      <div className="flex items-center justify-center space-x-2 text-muted-foreground">
+                        <Clock className="h-4 w-4" />
+                        <span className="text-sm">
+                          Next free conversion available tomorrow
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            ))}
+            
+            <div className="text-center">
+              <Button onClick={handleNewFiles} variant="outline">
+                Process More Statements
+              </Button>
             </div>
-            <div className="space-y-2">
-              <h3 className="text-lg font-semibold">{text.main}</h3>
-              <p className="text-muted-foreground">{text.sub}</p>
-            </div>
-            <div className="space-y-4">
-              <div className="bg-muted rounded-lg p-4">
-                <div className="flex items-center justify-center space-x-2 text-muted-foreground">
-                  <Clock className="h-4 w-4" />
-                  <span className="text-sm">
-                    Next free conversion available tomorrow
+            
+            {!user && processedFiles.some(pf => pf.status === 'success') && (
+              <div className="bg-primary/10 border border-primary/20 rounded-lg p-4">
+                <div className="flex items-center justify-center space-x-2 text-primary">
+                  <Coins className="h-4 w-4" />
+                  <span className="text-sm font-medium">
+                    Sign up for unlimited conversions + AI analysis
                   </span>
                 </div>
               </div>
-              <div className="flex space-x-4 justify-center">
-                <Button onClick={() => window.location.href = '/auth'} variant="default">
-                  Sign Up for Unlimited
-                </Button>
-                <Button onClick={handleNewFile} variant="outline">
-                  Try Tomorrow
-                </Button>
-              </div>
-            </div>
+            )}
           </div>
-        </Card>
-      </div>
-    );
-  }
-
-  // Show error state
-  if (uploadStatus === 'error') {
-    return (
-      <div className={cn("space-y-4", className)}>
-        <Card className="p-8">
-          <div className="space-y-6 text-center">
-            <div className="flex justify-center">
-              {getUploadIcon()}
-            </div>
-            <div className="space-y-2">
-              <h3 className="text-lg font-semibold">{text.main}</h3>
-              <p className="text-muted-foreground">{text.sub}</p>
-            </div>
-            <div className="flex space-x-4 justify-center">
-              <Button onClick={handleNewFile} variant="outline">
-                Try Different File
-              </Button>
-              <Button onClick={handleRetry} variant="default">
-                Retry
-              </Button>
-            </div>
-          </div>
-        </Card>
-      </div>
+        )}
+      </AuthWrapper>
     );
   }
 
