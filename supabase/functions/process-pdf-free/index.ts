@@ -1,6 +1,15 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
+
+// Make pdfjs-dist think it's running in a browser
+;(globalThis as any).navigator = {
+  userAgent: "Deno",
+  platform:  "Deno"
+}
+;(globalThis as any).window = globalThis
+;(globalThis as any).document = {}  // if pdf.js ever checks for it
+
 import pdfjsLib from "https://esm.sh/pdfjs-dist@2.16.105/legacy/build/pdf.js";
 
 const { getDocument } = pdfjsLib;
