@@ -2,11 +2,12 @@ import { useState, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Upload, FileText, Check, AlertCircle, Clock, Coins, Shield, Download } from "lucide-react";
+import { Upload, FileText, Check, AlertCircle, Clock, Coins, Shield, Download, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { AuthWrapper } from "./AuthWrapper";
 import { useToast } from "@/hooks/use-toast";
+import OCRProgressIndicator from "./OCRProgressIndicator";
 import * as XLSX from 'xlsx';
 
 interface ProcessedFile {
@@ -247,21 +248,41 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
         {({ user }) => (
           <div className={cn("space-y-4", className)}>
             {processedFiles.map((pFile, index) => (
-              <Card key={index} className="p-6">
-                <div className="space-y-4">
+              <div key={index} className="space-y-4">
+                {/* Enhanced Progress Indicator */}
+                <OCRProgressIndicator
+                  progress={pFile.progress}
+                  status={pFile.statusMessage}
+                  isComplete={pFile.status === 'success'}
+                  hasError={pFile.status === 'error' || pFile.status === 'limit_exceeded'}
+                  fileName={pFile.file.name}
+                />
+                
+                {/* Action Cards */}
+                <Card className="p-4 bg-gradient-to-r from-card to-card/90 border-primary/10">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center space-x-3">
-                      {getUploadIcon(pFile.status)}
+                      <div className="text-2xl">
+                        {pFile.status === 'success' ? '✅' : 
+                         pFile.status === 'error' ? '❌' : 
+                         pFile.status === 'limit_exceeded' ? '⏱️' : '⏳'}
+                      </div>
                       <div>
-                        <h4 className="font-medium">{pFile.file.name}</h4>
-                        <p className="text-sm text-muted-foreground">{pFile.statusMessage}</p>
+                        <h4 className="font-semibold text-foreground">{pFile.file.name}</h4>
+                        <p className="text-sm text-muted-foreground">
+                          {pFile.status === 'success' ? 'Ready for download' :
+                           pFile.status === 'error' ? 'Processing failed' :
+                           pFile.status === 'limit_exceeded' ? 'Daily limit reached' :
+                           'Processing...'}
+                        </p>
                       </div>
                     </div>
-                    <div className="flex items-center space-x-2">
+                    
+                    <div className="flex items-center space-x-3">
                       {pFile.status === 'success' && pFile.processedData && (
                         <Button 
                           onClick={() => downloadExcel(pFile.processedData, pFile.file.name)}
-                          variant="outline"
+                          className="bg-gradient-success hover:shadow-glow transition-all duration-300"
                           size="sm"
                         >
                           <Download className="h-4 w-4 mr-2" />
@@ -273,54 +294,41 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
                           onClick={() => handleRetry(index)}
                           variant="outline"
                           size="sm"
+                          className="hover:bg-primary/10 hover:border-primary"
                         >
-                          Retry
+                          🔄 Retry
                         </Button>
                       )}
                       {pFile.status === 'limit_exceeded' && (
                         <Button 
-                          onClick={() => window.location.href = '/auth'}
-                          variant="default"
+                          onClick={() => window.location.href = '/auth?mode=signup'}
+                          className="bg-gradient-primary hover:shadow-glow transition-all duration-300"
                           size="sm"
                         >
-                          Sign Up
+                          ⭐ Upgrade
                         </Button>
                       )}
                     </div>
                   </div>
                   
-                  {pFile.status === 'processing' && (
-                    <div className="space-y-2">
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div 
-                          className="bg-primary h-2 rounded-full transition-all duration-300" 
-                          style={{ width: `${pFile.progress}%` }}
-                        />
-                      </div>
-                      <div className="text-sm text-muted-foreground text-center">
-                        {pFile.progress}% complete
-                      </div>
-                    </div>
-                  )}
-                  
                   {pFile.status === 'error' && pFile.errorMessage && (
-                    <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
-                      <p className="text-destructive text-sm">{pFile.errorMessage}</p>
+                    <div className="mt-4 bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                      <p className="text-destructive text-sm font-medium">❌ {pFile.errorMessage}</p>
                     </div>
                   )}
                   
                   {pFile.status === 'limit_exceeded' && (
-                    <div className="bg-muted rounded-lg p-3">
-                      <div className="flex items-center justify-center space-x-2 text-muted-foreground">
+                    <div className="mt-4 bg-warning/10 border border-warning/20 rounded-lg p-3">
+                      <div className="flex items-center space-x-2 text-warning">
                         <Clock className="h-4 w-4" />
-                        <span className="text-sm">
-                          Next free conversion available tomorrow
+                        <span className="text-sm font-medium">
+                          🚀 Upgrade for unlimited conversions + AI analysis!
                         </span>
                       </div>
                     </div>
                   )}
-                </div>
-              </Card>
+                </Card>
+              </div>
             ))}
             
             <div className="text-center">
@@ -349,56 +357,101 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
   return (
     <AuthWrapper>
       {({ user }) => (
-        <Card 
-          {...getRootProps()} 
-          className={cn(
-            "relative overflow-hidden border-2 border-dashed cursor-pointer transition-all duration-300",
-            isDragActive && !isDragReject && "border-primary bg-primary/5 scale-102",
-            isDragReject && "border-destructive bg-destructive/5",
-            className
-          )}
-        >
-          <input {...getInputProps()} />
-          
-          <div className="p-12 text-center space-y-6">
-            <div className="flex justify-center">
-              {getUploadIcon()}
-            </div>
-
-            <div className="space-y-2">
-              <h3 className="text-lg font-semibold">{text.main}</h3>
-              <p className="text-muted-foreground">{text.sub}</p>
-            </div>
-
-            <div className="space-y-4">
-              <Button variant="outline" size="lg" className="mx-auto">
-                <FileText className="h-4 w-4 mr-2" />
-                Browse PDF Files
-              </Button>
-              
-              {!user && (
-                <div className="bg-primary/10 border border-primary/20 rounded-lg p-3">
-                  <div className="flex items-center justify-center space-x-2 text-primary text-sm">
-                    <Coins className="h-4 w-4" />
-                    <span>Sign up for AI-powered insights & analysis</span>
+        <div className={cn("w-full", className)}>
+          <Card 
+            className="relative overflow-hidden shadow-elegant border-primary/20 bg-gradient-to-br from-card to-card/80 hover:shadow-glow transition-all duration-500"
+          >
+            <div 
+              {...getRootProps()} 
+              className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all duration-300 ${
+                isDragActive 
+                  ? 'border-primary bg-gradient-to-br from-primary/10 to-primary-glow/5 scale-[1.02] shadow-glow' 
+                  : 'border-border hover:border-primary/50 hover:bg-muted/30 hover:shadow-elegant'
+              } bg-gradient-to-br from-background to-muted/20`}
+            >
+              <input {...getInputProps()} />
+              <div className="space-y-8">
+                <div className="flex justify-center">
+                  <div className={`relative transition-all duration-300 ${isDragActive ? 'scale-110' : ''}`}>
+                    <div className="absolute inset-0 bg-gradient-primary rounded-full blur-xl opacity-20 animate-pulse"></div>
+                    <div className="relative">
+                      {getUploadIcon()}
+                    </div>
                   </div>
                 </div>
-              )}
+                
+                <div className="space-y-4">
+                  <h3 className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent">
+                    {text.main}
+                  </h3>
+                  <p className="text-muted-foreground font-medium text-lg">{text.sub}</p>
+                </div>
+                
+                <div className="space-y-6">
+                  <Button 
+                    variant="outline" 
+                    size="lg"
+                    className="border-primary/30 hover:bg-primary/10 hover:border-primary transition-all duration-300 group shadow-elegant hover:shadow-glow h-14 px-10 text-lg"
+                  >
+                    <Upload className="h-6 w-6 mr-3 group-hover:scale-110 transition-transform" />
+                    Choose PDF Files
+                  </Button>
+                  
+                  {!user && (
+                    <div className="relative group max-w-2xl mx-auto">
+                      <div className="absolute inset-0 bg-gradient-primary rounded-2xl blur-xl opacity-25 group-hover:opacity-40 transition-opacity duration-500"></div>
+                      <div 
+                        className="relative bg-gradient-to-r from-primary/5 via-primary-glow/5 to-accent/5 border border-primary/30 rounded-2xl p-6 hover:shadow-glow transition-all duration-500 cursor-pointer group-hover:scale-[1.02]"
+                        onClick={() => window.location.href = '/auth?mode=signup'}
+                      >
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-center space-x-3">
+                            <Coins className="h-6 w-6 text-primary animate-pulse" />
+                            <span className="text-primary font-bold text-lg">Unlock AI-Powered Financial Insights</span>
+                          </div>
+                          <div className="flex flex-wrap justify-center gap-4 text-sm text-muted-foreground">
+                            <div className="flex items-center space-x-1">
+                              <div className="w-2 h-2 bg-success rounded-full"></div>
+                              <span>Advanced Fraud Detection</span>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <div className="w-2 h-2 bg-primary rounded-full"></div>
+                              <span>Smart Categorization</span>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <div className="w-2 h-2 bg-accent rounded-full"></div>
+                              <span>Spending Trend Analysis</span>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <div className="w-2 h-2 bg-warning rounded-full"></div>
+                              <span>Tax Optimization</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
 
-          {/* Security badges */}
-          <div className="absolute bottom-4 left-4 right-4 flex justify-center space-x-4 text-xs text-muted-foreground">
-            <div className="flex items-center space-x-1">
-              <Shield className="w-3 h-3 text-success" />
-              <span>100% Private</span>
+            {/* Enhanced Security badges */}
+            <div className="flex flex-wrap justify-center gap-6 text-xs text-muted-foreground mt-6 pb-4">
+              <div className="flex items-center space-x-2 bg-muted/30 px-3 py-2 rounded-full">
+                <Shield className="h-4 w-4 text-success" />
+                <span className="font-medium">Bank-Grade Security</span>
+              </div>
+              <div className="flex items-center space-x-2 bg-muted/30 px-3 py-2 rounded-full">
+                <div className="h-4 w-4 text-primary">🔒</div>
+                <span className="font-medium">End-to-End Encrypted</span>
+              </div>
+              <div className="flex items-center space-x-2 bg-muted/30 px-3 py-2 rounded-full">
+                <FileText className="h-4 w-4 text-accent" />
+                <span className="font-medium">Instant Excel Export</span>
+              </div>
             </div>
-            <div className="flex items-center space-x-1">
-              <Check className="w-3 h-3 text-success" />
-              <span>No Data Stored</span>
-            </div>
-          </div>
-        </Card>
+          </Card>
+        </div>
       )}
     </AuthWrapper>
   );
