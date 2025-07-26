@@ -83,10 +83,10 @@ const OCRProgressIndicator = ({
           {/* Technical Details */}
           <div className="grid grid-cols-2 gap-4 pt-4 border-t text-xs text-muted-foreground">
             <div>
-              <div className="font-medium">OCR Engine</div>
+              <div className="font-medium">Processing Engine</div>
               <div className="flex items-center space-x-1">
                 <Zap className="h-3 w-3" />
-                <span>Mistral Document OCR</span>
+                <span>Advanced PDF Parser</span>
               </div>
             </div>
             <div>

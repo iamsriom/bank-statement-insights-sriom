@@ -398,38 +398,15 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
                   </Button>
                   
                   {!user && (
-                    <div className="relative group max-w-2xl mx-auto">
-                      <div className="absolute inset-0 bg-gradient-primary rounded-2xl blur-xl opacity-25 group-hover:opacity-40 transition-opacity duration-500"></div>
-                      <div 
-                        className="relative bg-gradient-to-r from-primary/5 via-primary-glow/5 to-accent/5 border border-primary/30 rounded-2xl p-6 hover:shadow-glow transition-all duration-500 cursor-pointer group-hover:scale-[1.02]"
-                        onClick={() => window.location.href = '/auth?mode=signup'}
-                      >
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-center space-x-3">
-                            <Coins className="h-6 w-6 text-primary animate-pulse" />
-                            <span className="text-primary font-bold text-lg">Unlock AI-Powered Financial Insights</span>
-                          </div>
-                          <div className="flex flex-wrap justify-center gap-4 text-sm text-muted-foreground">
-                            <div className="flex items-center space-x-1">
-                              <div className="w-2 h-2 bg-success rounded-full"></div>
-                              <span>Advanced Fraud Detection</span>
-                            </div>
-                            <div className="flex items-center space-x-1">
-                              <div className="w-2 h-2 bg-primary rounded-full"></div>
-                              <span>Smart Categorization</span>
-                            </div>
-                            <div className="flex items-center space-x-1">
-                              <div className="w-2 h-2 bg-accent rounded-full"></div>
-                              <span>Spending Trend Analysis</span>
-                            </div>
-                            <div className="flex items-center space-x-1">
-                              <div className="w-2 h-2 bg-warning rounded-full"></div>
-                              <span>Tax Optimization</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      className="border-primary/30 hover:bg-primary/10 hover:border-primary transition-all duration-300 text-primary font-medium"
+                      onClick={() => window.location.href = '/auth?mode=signup'}
+                    >
+                      <Coins className="h-4 w-4 mr-2" />
+                      Unlock AI Analysis
+                    </Button>
                   )}
                 </div>
               </div>
