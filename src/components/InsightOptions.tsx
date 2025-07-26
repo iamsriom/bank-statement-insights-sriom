@@ -76,9 +76,24 @@ const InsightOptions = ({ excelData, onInsightSelected }: InsightOptionsProps) =
     }
   ];
 
-  const handleInsightClick = (insightId: string) => {
+  const handleInsightClick = async (insightId: string) => {
     setSelectedInsight(insightId);
-    onInsightSelected(insightId);
+    
+    // Call the appropriate edge function based on insight type
+    const functionMap = {
+      'tax-deductions': 'analyze-tax-deductions',
+      'loan-application': 'analyze-loan-application', 
+      'subscription-audit': 'analyze-subscriptions',
+      'business-expenses': 'analyze-business-expenses',
+      'fraud-detection': 'analyze-fraud-anomalies'
+    };
+    
+    const functionName = functionMap[insightId as keyof typeof functionMap];
+    if (functionName) {
+      // Extract transactions from excel data for AI analysis
+      const transactions = excelData?.sheets?.[0]?.data || [];
+      onInsightSelected(insightId);
+    }
   };
 
   return (
