@@ -68,6 +68,33 @@ export type Database = {
         }
         Relationships: []
       }
+      credit_transactions: {
+        Row: {
+          created_at: string
+          credits_used: number
+          id: string
+          operation_type: string
+          remaining_credits: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          credits_used: number
+          id?: string
+          operation_type: string
+          remaining_credits: number
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          credits_used?: number
+          id?: string
+          operation_type?: string
+          remaining_credits?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       export_logs: {
         Row: {
           download_count: number | null
@@ -144,9 +171,37 @@ export type Database = {
           },
         ]
       }
+      processing_sessions: {
+        Row: {
+          created_at: string
+          credit_type: string
+          expires_at: string
+          id: string
+          session_token: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          credit_type: string
+          expires_at?: string
+          id?: string
+          session_token: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          credit_type?: string
+          expires_at?: string
+          id?: string
+          session_token?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
+          credits: number
           email: string | null
           full_name: string | null
           id: string
@@ -156,6 +211,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          credits?: number
           email?: string | null
           full_name?: string | null
           id?: string
@@ -165,6 +221,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          credits?: number
           email?: string | null
           full_name?: string | null
           id?: string
