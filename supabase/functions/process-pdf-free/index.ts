@@ -288,28 +288,81 @@ serve(async (req) => {
       });
     }
 
-    // Parse request body with proper error handling
-    let requestBody;
-    try {
-      const bodyText = await req.text();
-      if (!bodyText || bodyText.trim() === '') {
-        throw new Error('Empty request body');
+    // Detect content-type and handle both JSON and form-data
+    const contentType = req.headers.get("content-type") || "";
+    console.log('Request content-type:', contentType);
+
+    let fileData: string; // base64 string for our processing
+    let fileName: string;
+    let fileSize: number;
+
+    // 1. If the client sent JSON { file_data, file_name, file_size }
+    if (contentType.includes("application/json")) {
+      let body: any;
+      try {
+        const bodyText = await req.text();
+        if (!bodyText || bodyText.trim() === '') {
+          throw new Error('Empty request body');
+        }
+        body = JSON.parse(bodyText);
+      } catch (parseError) {
+        console.error('JSON parsing error:', parseError);
+        return new Response(JSON.stringify({ 
+          error: 'Invalid or empty JSON body' 
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
-      requestBody = JSON.parse(bodyText);
-    } catch (parseError) {
-      console.error('Request body parsing error:', parseError);
+      
+      fileData = body.file_data; // Already base64
+      fileName = body.file_name;
+      fileSize = Number(body.file_size);
+
+    // 2. If the client sent multipart/form-data
+    } else if (contentType.includes("multipart/form-data")) {
+      try {
+        const form = await req.formData();
+        const file = form.get("file") as File;
+        
+        if (!file) {
+          return new Response(JSON.stringify({ 
+            error: "No file in form-data" 
+          }), {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        
+        fileName = file.name;
+        fileSize = file.size;
+        
+        // Convert file to base64 for our processing
+        const arrayBuffer = await file.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+        fileData = btoa(String.fromCharCode(...uint8Array));
+        
+      } catch (formError) {
+        console.error('Form-data parsing error:', formError);
+        return new Response(JSON.stringify({ 
+          error: 'Failed to parse form-data' 
+        }), {
+          status: 400,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+    } else {
       return new Response(JSON.stringify({ 
-        error: 'Invalid request format. Expected JSON with file_data, file_name, and file_size.' 
+        error: `Unsupported content-type: ${contentType}. Expected application/json or multipart/form-data` 
       }), {
-        status: 400,
+        status: 415,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const { file_data, file_name, file_size } = requestBody;
-
     // Validate required fields
-    if (!file_data || !file_name || !file_size) {
+    if (!fileData || !fileName || !fileSize) {
       return new Response(JSON.stringify({ 
         error: 'Missing required fields: file_data, file_name, file_size' 
       }), {
@@ -318,7 +371,7 @@ serve(async (req) => {
       });
     }
 
-    console.log(`Processing PDF: ${file_name} (${file_size} bytes)`);
+    console.log(`Processing PDF: ${fileName} (${fileSize} bytes)`);
 
     let excelData;
     let extractedText = '';
@@ -330,15 +383,15 @@ serve(async (req) => {
       if (mistralApiKey && mistralApiKey.trim() !== '') {
         try {
           console.log('Using Advanced PDF Parser with OCR...');
-          extractedText = await extractTextWithMistralOCR(file_data);
+          extractedText = await extractTextWithMistralOCR(fileData);
           console.log(`OCR extracted text length: ${extractedText.length}`);
         } catch (mistralError) {
           console.log('Advanced PDF Parser failed, using fallback:', mistralError.message);
-          extractedText = extractTextFromPDFFallback(file_data);
+          extractedText = extractTextFromPDFFallback(fileData);
         }
       } else {
         console.log('Advanced PDF Parser not available, using fallback extraction');
-        extractedText = extractTextFromPDFFallback(file_data);
+        extractedText = extractTextFromPDFFallback(fileData);
       }
       
       // Parse the extracted text into structured data
