@@ -36,31 +36,34 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }, []);
 
-  const processWithAPI = useCallback(async (fileData: string, fileName: string, fileSize: number) => {
+  const processWithAPI = useCallback(async (file: File) => {
     try {
       onProgress(40, "Checking for cached results...");
-      
-      // Generate file hash for deduplication
-      const fileHash = await generateFileHash(fileData);
       
       onProgress(60, "Processing document with Advanced PDF Parser...");
       
       // Get current session for authentication (optional)
       const { data: { session } } = await supabase.auth.getSession();
       
-      const { data, error } = await supabase.functions.invoke('process-pdf-free', {
-        body: {
-          file_data: fileData,
-          file_name: fileName,
-          file_size: fileSize
+      // Send PDF as raw bytes for better reliability
+      const response = await fetch(`https://vimdhqgjbwlesiacqudg.supabase.co/functions/v1/process-pdf-free`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/pdf',
+          'x-file-name': file.name,
+          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZpbWRocWdqYndsZXNpYWNxdWRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMwNzg3MDUsImV4cCI6MjA2ODY1NDcwNX0.B9cNspGa_sMJxNvI5Coqwtp9YCUSge4Ay-5p9WC08Nw',
+          ...(session ? { 'Authorization': `Bearer ${session.access_token}` } : {})
         },
-        headers: session ? { Authorization: `Bearer ${session.access_token}` } : {}
+        body: file // Send raw file blob
       });
 
-      if (error) {
-        console.error('Processing error:', error);
-        throw new Error(error.message || 'Failed to process document');
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Response error:', errorText);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
+
+      const data = await response.json();
 
       if (!data.success) {
         throw new Error(data.details || 'Processing failed');
@@ -71,7 +74,7 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
       console.error('API processing error:', error);
       throw error;
     }
-  }, [onProgress, generateFileHash]);
+  }, [onProgress]);
 
   const processDocument = useCallback(async () => {
     if (isProcessing || hasProcessed.current) return;
@@ -88,12 +91,8 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
     try {
       onProgress(5, "Starting document processing...");
       
-      // Convert file to base64 for processing
-      onProgress(20, "Preparing document...");
-      const fileData = await convertFileToBase64(file);
-      
-      // Process with API
-      const processedData = await processWithAPI(fileData, file.name, file.size);
+      // Process with API directly using file
+      const processedData = await processWithAPI(file);
       
       if (!processedData.success) {
         throw new Error('Processing failed');
@@ -140,7 +139,7 @@ const OCRProcessor = ({ file, onProcessed, onError, onProgress }: OCRProcessorPr
     } finally {
       setIsProcessing(false);
     }
-  }, [file, convertFileToBase64, processWithAPI, onProcessed, onError, onProgress]);
+  }, [file, processWithAPI, onProcessed, onError, onProgress]);
 
   // Auto-start processing when component mounts
   useEffect(() => {

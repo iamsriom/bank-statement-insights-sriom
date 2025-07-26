@@ -34,41 +34,35 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
     try {
       // Update file status to processing
       setProcessedFiles(prev => prev.map((pf, i) => 
-        i === fileIndex ? { ...pf, status: 'processing', progress: 20, statusMessage: 'Converting file to base64...' } : pf
+        i === fileIndex ? { ...pf, status: 'processing', progress: 20, statusMessage: 'Preparing file...' } : pf
       ));
-
-      // Convert file to base64
-      const reader = new FileReader();
-      const fileData = await new Promise<string>((resolve, reject) => {
-        reader.onload = () => resolve((reader.result as string).split(',')[1]);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
 
       setProcessedFiles(prev => prev.map((pf, i) => 
         i === fileIndex ? { ...pf, progress: 40, statusMessage: 'Processing with AI...' } : pf
       ));
 
-      // Call the free PDF processing function
+      // Call the free PDF processing function with raw bytes
       const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/pdf',
+        'x-file-name': file.name,
+        'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZpbWRocWdqYndsZXNpYWNxdWRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMwNzg3MDUsImV4cCI6MjA2ODY1NDcwNX0.B9cNspGa_sMJxNvI5Coqwtp9YCUSge4Ay-5p9WC08Nw',
       };
 
       if (authToken) {
         headers['Authorization'] = `Bearer ${authToken}`;
       }
 
-      const response = await supabase.functions.invoke('process-pdf-free', {
-        body: {
-          file_data: fileData,
-          file_name: file.name,
-          file_size: file.size
-        },
-        headers
+      const response = await fetch(`https://vimdhqgjbwlesiacqudg.supabase.co/functions/v1/process-pdf-free`, {
+        method: 'POST',
+        headers,
+        body: file // Send raw file blob
       });
 
-      if (response.error) {
-        if (response.error.message?.includes('limit reached')) {
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Response error:', errorText);
+        
+        if (errorText.includes('limit reached')) {
           setProcessedFiles(prev => prev.map((pf, i) => 
             i === fileIndex ? { 
               ...pf, 
@@ -79,14 +73,18 @@ const UploadZone = ({ onFileUpload, onProcessedData, className }: UploadZoneProp
           setRemainingConversions(0);
           return;
         }
-        throw new Error(response.error.message);
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
+
+      const data = await response.json();
 
       setProcessedFiles(prev => prev.map((pf, i) => 
         i === fileIndex ? { ...pf, progress: 80, statusMessage: 'Finalizing...' } : pf
       ));
 
-      const data = response.data;
+      if (!data.success) {
+        throw new Error(data.details || 'Processing failed');
+      }
       setRemainingConversions(data.remaining_conversions);
 
       // Format data for parent component
