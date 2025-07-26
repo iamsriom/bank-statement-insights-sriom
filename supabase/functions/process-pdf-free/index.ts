@@ -1,71 +1,93 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
+import { getDocument } from "https://esm.sh/pdfjs-dist@2.16.105/legacy/build/pdf.js";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Mistral OCR extraction using proper technique
-async function extractTextWithMistralOCR(base64Data: string): Promise<string> {
-  const mistralApiKey = Deno.env.get('MISTRAL_API_KEY');
-  
-  if (!mistralApiKey || mistralApiKey.trim() === '') {
+// Extract embedded text from digital PDFs (no OCR needed)
+async function extractDigitalText(pdfBytes: Uint8Array): Promise<string> {
+  try {
+    console.log('Extracting digital text from PDF...');
+    const loadingTask = getDocument({ data: pdfBytes });
+    const doc = await loadingTask.promise;
+    let fullText = "";
+    
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items.map((item: any) => item.str).join(" ");
+      fullText += `=== PAGE ${i} ===\n${pageText}\n\n`;
+    }
+    
+    console.log(`Digital text extracted: ${fullText.length} characters`);
+    return fullText.trim();
+  } catch (error) {
+    console.error('Digital text extraction failed:', error);
+    return '';
+  }
+}
+
+// Proper Mistral OCR with correct API endpoint
+async function callMistralOCR(pdfBytes: Uint8Array, filename: string): Promise<string> {
+  const apiKey = Deno.env.get('MISTRAL_API_KEY');
+  if (!apiKey || apiKey.trim() === '') {
     throw new Error('Mistral API key not configured');
   }
 
   try {
-    console.log('Starting Mistral OCR extraction...');
+    console.log('Starting Mistral OCR...');
     
-    // Call Mistral Document OCR API (Note: using general chat endpoint as OCR endpoint may not exist)
-    const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+    // Base64‑encode the PDF
+    const b64 = btoa(String.fromCharCode(...pdfBytes));
+    
+    // Hit the official OCR endpoint with the right JSON shape
+    const response = await fetch('https://api.aimlapi.com/v1/ocr', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${mistralApiKey}`,
-        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: 'mistral-large-latest',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an OCR expert. Extract all readable text from this PDF document. Return only the extracted text, preserving line breaks and structure as much as possible.'
-          },
-          {
-            role: 'user',
-            content: `Please extract all text from this PDF document: data:application/pdf;base64,${base64Data.substring(0, 100000)}`
-          }
-        ],
-        temperature: 0.1,
-        max_tokens: 4000
-      }),
+        model: 'mistral/mistral-ocr-latest',
+        document: {
+          type: 'base64',
+          data: b64,
+          name: filename || 'statement.pdf'
+        },
+        pages: [], // empty = all pages
+        include_image_base64: false
+      })
     });
 
     if (!response.ok) {
-      throw new Error(`Mistral OCR API error: ${response.status}`);
+      const errText = await response.text();
+      console.error('Mistral OCR failed:', response.status, errText);
+      throw new Error(`Mistral OCR error: ${response.status}`);
     }
 
     const result = await response.json();
     console.log('Mistral OCR completed');
     
-    // Extract text from chat response
-    const extractedText = result.choices?.[0]?.message?.content || '';
-    
-    return extractedText.trim() || 'No text extracted from PDF';
+    // Extract text from all pages
+    const ocrText = result.pages?.map((p: any) => p.markdown || '').join('\n\n') || '';
+    return ocrText.trim();
   } catch (error) {
-    console.error('Advanced PDF Parser error:', error);
+    console.error('Mistral OCR error:', error);
     throw error;
   }
 }
 
-// Fallback PDF text extraction for when Mistral OCR fails
-function extractTextFromPDFFallback(base64Data: string): string {
+// Fallback PDF text extraction for when both digital and OCR fail
+function extractTextFromPDFFallback(pdfBytes: Uint8Array): string {
   try {
     console.log('Using fallback text extraction...');
     
-    // Simple pattern-based extraction as fallback
-    const binaryData = atob(base64Data.substring(0, Math.min(base64Data.length, 50000)));
+    // Convert to string and extract readable text patterns
+    const binaryData = String.fromCharCode(...pdfBytes.slice(0, Math.min(pdfBytes.length, 50000)));
     
     // Extract readable text patterns
     const textMatches = binaryData.match(/[a-zA-Z0-9\s\-\$\.,\/\(\)]{10,}/g) || [];
@@ -225,63 +247,70 @@ function parseBankStatement(text: string): any {
 
 // PDF processing function that takes raw bytes and filename
 async function processBuffer(pdfBytes: Uint8Array, filename: string): Promise<Response> {
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  };
-
   try {
     console.log(`Processing PDF: ${filename} (${pdfBytes.length} bytes)`);
 
-    // Convert to base64 for Mistral API
-    const fileData = btoa(String.fromCharCode(...pdfBytes));
-    const fileSize = pdfBytes.length;
-
-    let excelData;
     let extractedText = '';
     
+    // 1. Try digital text extraction first (faster and more accurate)
     try {
-      // Try Mistral OCR first if available
+      extractedText = await extractDigitalText(pdfBytes);
+      
+      if (extractedText.trim().length > 50) {
+        console.log('Digital text extraction successful, skipping OCR');
+      } else {
+        console.log('No digital text found, falling back to OCR');
+        extractedText = '';
+      }
+    } catch (digitalError) {
+      console.log('Digital text extraction failed:', digitalError.message);
+      extractedText = '';
+    }
+
+    // 2. If no digital text, try Mistral OCR
+    if (!extractedText || extractedText.trim().length < 50) {
       const mistralApiKey = Deno.env.get('MISTRAL_API_KEY');
       
       if (mistralApiKey && mistralApiKey.trim() !== '') {
         try {
-          console.log('Using Mistral OCR extraction...');
-          extractedText = await extractTextWithMistralOCR(fileData);
+          console.log('Using Mistral OCR...');
+          extractedText = await callMistralOCR(pdfBytes, filename);
           console.log(`OCR extracted text length: ${extractedText.length}`);
         } catch (mistralError) {
           console.log('Mistral OCR failed, using fallback:', mistralError.message);
-          extractedText = extractTextFromPDFFallback(fileData);
+          extractedText = extractTextFromPDFFallback(pdfBytes);
         }
       } else {
         console.log('Mistral OCR not available, using fallback extraction');
-        extractedText = extractTextFromPDFFallback(fileData);
+        extractedText = extractTextFromPDFFallback(pdfBytes);
       }
+    }
+
+    // 3. Parse the extracted text into structured data
+    const excelData = parseBankStatement(extractedText);
       
-      // Parse the extracted text into structured data
-      excelData = parseBankStatement(extractedText);
-      
-      // If Mistral OCR was successful but parsing yielded poor results, enhance with AI
-      if (mistralApiKey && mistralApiKey.trim() !== '' && excelData.transactions.length < 3) {
-        try {
-          console.log('Enhancing data structure with AI...');
-          
-          const enhanceResponse = await fetch('https://api.mistral.ai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${mistralApiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'mistral-large-latest',
-              messages: [
-                {
-                  role: 'system',
-                  content: 'You are a financial data processor. Convert bank statement text into structured JSON format suitable for Excel export. Return only valid JSON with no additional text.'
-                },
-                {
-                  role: 'user',
-                  content: `Extract transaction data from this bank statement text and return as JSON:
+    // 4. If we still have poor results, try AI enhancement (only if we have Mistral key and got some text)
+    const mistralApiKey = Deno.env.get('MISTRAL_API_KEY');
+    if (mistralApiKey && mistralApiKey.trim() !== '' && excelData.transactions.length < 3 && extractedText.length > 100) {
+      try {
+        console.log('Enhancing data structure with AI...');
+        
+        const enhanceResponse = await fetch('https://api.mistral.ai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${mistralApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'mistral-large-latest',
+            messages: [
+              {
+                role: 'system',
+                content: 'You are a financial data processor. Convert bank statement text into structured JSON format suitable for Excel export. Return only valid JSON with no additional text.'
+              },
+              {
+                role: 'user',
+                content: `Extract transaction data from this bank statement text and return as JSON:
 
 ${extractedText.substring(0, 8000)}
 
@@ -311,47 +340,42 @@ Return JSON with this exact structure:
     "transaction_count": number
   }
 }`
-                }
-              ],
-              temperature: 0.1,
-              max_tokens: 4000,
-            }),
-          });
+              }
+            ],
+            temperature: 0.1,
+            max_tokens: 4000,
+          }),
+        });
 
-          if (enhanceResponse.ok) {
-            const responseText = await enhanceResponse.text();
-            console.log('AI response received, parsing...');
+        if (enhanceResponse.ok) {
+          const responseText = await enhanceResponse.text();
+          console.log('AI response received, parsing...');
+          
+          try {
+            const enhanceData = JSON.parse(responseText);
+            const aiResponse = enhanceData.choices[0]?.message?.content;
             
-            try {
-              const enhanceData = JSON.parse(responseText);
-              const aiResponse = enhanceData.choices[0]?.message?.content;
-              
-              if (aiResponse) {
-                // Try to extract JSON from the response
-                const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                  const parsedData = JSON.parse(jsonMatch[0]);
-                  if (parsedData.transactions && Array.isArray(parsedData.transactions) && parsedData.transactions.length > 0) {
-                    excelData = parsedData;
-                    console.log('Enhanced with AI parsing');
-                  }
+            if (aiResponse) {
+              // Try to extract JSON from the response
+              const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+              if (jsonMatch) {
+                const parsedData = JSON.parse(jsonMatch[0]);
+                if (parsedData.transactions && Array.isArray(parsedData.transactions) && parsedData.transactions.length > 0) {
+                  excelData = parsedData;
+                  console.log('Enhanced with AI parsing');
                 }
               }
-            } catch (parseError) {
-              console.log('AI response parsing failed, using parsed data:', parseError.message);
             }
-          } else {
-            console.log('AI enhancement failed, using parsed data');
+          } catch (parseError) {
+            console.log('AI response parsing failed, using parsed data:', parseError.message);
           }
-          
-        } catch (enhanceError) {
-          console.log('AI enhancement error, using parsed data:', enhanceError.message);
+        } else {
+          console.log('AI enhancement failed, using parsed data');
         }
+        
+      } catch (enhanceError) {
+        console.log('AI enhancement error, using parsed data:', enhanceError.message);
       }
-      
-    } catch (error) {
-      console.error('Error in PDF processing:', error);
-      throw new Error(`PDF processing failed: ${error.message}`);
     }
 
     return new Response(JSON.stringify({
